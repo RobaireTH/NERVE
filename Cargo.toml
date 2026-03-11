@@ -1,3 +1,10 @@
 [workspace]
 members = ["packages/core", "contracts"]
+# Contracts compile only for riscv64imac-unknown-none-elf via scripts/deploy_contracts.sh.
+default-members = ["packages/core"]
 resolver = "2"
+
+[profile.release]
+opt-level = "z"
+lto = true
+overflow-checks = true
