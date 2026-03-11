@@ -33,6 +33,25 @@ pub struct LiveCell {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct LiveCellData {
+	pub content: String,
+	#[allow(dead_code)]
+	pub hash: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct LiveCellInfo {
+	pub output: CellOutput,
+	pub data: Option<LiveCellData>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GetLiveCellResult {
+	pub cell: Option<LiveCellInfo>,
+	pub status: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct GetCellsResult {
 	pub objects: Vec<LiveCell>,
 	// Used for paginated queries in future iterations.
@@ -125,7 +144,18 @@ impl CkbClient {
 		resp.result.ok_or_else(|| TxBuildError::Rpc("empty result".into()))
 	}
 
-	#[allow(dead_code)]
+	pub async fn get_live_cell(
+		&self,
+		tx_hash: &str,
+		index: u32,
+	) -> Result<GetLiveCellResult, TxBuildError> {
+		self.rpc(
+			"get_live_cell",
+			json!([{ "tx_hash": tx_hash, "index": format!("{:#x}", index) }, true]),
+		)
+		.await
+	}
+
 	pub async fn get_tip_block_number(&self) -> Result<u64, TxBuildError> {
 		let hex: String = self.rpc("get_tip_block_number", json!([])).await?;
 		parse_hex_u64(&hex)
