@@ -1,0 +1,35 @@
+services:
+	core:
+		build:
+			context: .
+			dockerfile: packages/core/Dockerfile
+		ports:
+			- "${CORE_PORT:-8080}:8080"
+		env_file: .env
+		healthcheck:
+			test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+			interval: 10s
+			timeout: 5s
+			retries: 3
+
+	mcp:
+		build:
+			context: .
+			dockerfile: packages/mcp/Dockerfile
+		ports:
+			- "${MCP_PORT:-8081}:8081"
+		env_file: .env
+		depends_on:
+			core:
+				condition: service_healthy
+
+	agent:
+		image: node:20-alpine
+		working_dir: /workspace
+		command: sh -c "npm install -g openclaw && openclaw start --config openclaw.json"
+		volumes:
+			- ./packages/agent:/workspace
+		env_file: .env
+		depends_on:
+			- core
+			- mcp

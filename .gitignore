@@ -1,0 +1,13 @@
+# Rust
+target/
+
+# Node
+node_modules/
+dist/
+
+# Environment
+.env
+.env.deployed
+
+# OpenClaw local state
+.openclaw/
