@@ -3,7 +3,11 @@ use serde_json::Value;
 
 use crate::{errors::TxBuildError, state::ckb_to_shannons, AppState};
 
-use super::{identity::build_spawn_agent, transfer::build_transfer};
+use super::{
+	identity::build_spawn_agent,
+	job::{build_post_job, parse_hash_32},
+	transfer::build_transfer,
+};
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "intent", rename_all = "snake_case")]
@@ -21,6 +25,15 @@ pub enum BuildRequest {
 		spending_limit_ckb: f64,
 		/// Daily spending cap in CKB.
 		daily_limit_ckb: f64,
+	},
+	/// Post a new job cell with a CKB reward locked inside.
+	PostJob {
+		/// CKB reward paid to the worker on completion.
+		reward_ckb: f64,
+		/// Number of blocks before the job expires and the poster can reclaim.
+		ttl_blocks: u64,
+		/// blake2b-256 hash (0x-prefixed hex) of the required capability type.
+		capability_hash: String,
 	},
 }
 
@@ -42,7 +55,6 @@ pub async fn build_and_sign(
 		}
 
 		BuildRequest::SpawnAgent { spending_limit_ckb, daily_limit_ckb } => {
-			// Derive the compressed public key from the private key.
 			let pubkey = derive_compressed_pubkey(&state.private_key)?;
 			let spending_limit_shannons = ckb_to_shannons(spending_limit_ckb);
 			let daily_limit_shannons = ckb_to_shannons(daily_limit_ckb);
@@ -53,6 +65,13 @@ pub async fn build_and_sign(
 				daily_limit_shannons,
 			)
 			.await?;
+			Ok(BuildResult { tx_hash, tx })
+		}
+
+		BuildRequest::PostJob { reward_ckb, ttl_blocks, capability_hash } => {
+			let reward_shannons = ckb_to_shannons(reward_ckb);
+			let cap_hash = parse_hash_32(&capability_hash)?;
+			let (tx, tx_hash) = build_post_job(state, reward_shannons, ttl_blocks, cap_hash).await?;
 			Ok(BuildResult { tx_hash, tx })
 		}
 	}
