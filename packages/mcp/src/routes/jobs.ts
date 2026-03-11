@@ -1,0 +1,130 @@
+import { Router } from 'express';
+import { getCellsByScript, getLiveCell, Script, LiveCell } from '../ckb.js';
+
+const router = Router();
+
+const CORE_URL = process.env.CORE_URL ?? 'http://localhost:8080';
+const JOB_TYPE_CODE_HASH = process.env.JOB_CELL_TYPE_CODE_HASH ?? '';
+
+const JOB_STATUS = ['Open', 'Reserved', 'Claimed', 'Completed', 'Expired'] as const;
+type JobStatus = (typeof JOB_STATUS)[number];
+
+interface ParsedJob {
+	out_point: { tx_hash: string; index: string };
+	status: JobStatus;
+	poster_lock_args: string;
+	worker_lock_args: string | null;
+	reward_ckb: number;
+	ttl_block_height: string;
+	capability_hash: string;
+	capacity_shannons: string;
+}
+
+function parseJobCell(cell: LiveCell): ParsedJob | null {
+	const hexData = cell.output_data;
+	if (!hexData || hexData === '0x' || hexData.length < 2 + 180) return null; // 90 bytes = 180 hex chars
+
+	const raw = Buffer.from(hexData.replace('0x', ''), 'hex');
+	if (raw.length < 90) return null;
+	if (raw[0] !== 0) return null; // version check
+
+	const statusByte = raw[1];
+	if (statusByte > 4) return null;
+
+	const posterLockArgs = '0x' + raw.subarray(2, 22).toString('hex');
+	const workerBytes = raw.subarray(22, 42);
+	const workerLockArgs = workerBytes.every((b) => b === 0)
+		? null
+		: '0x' + workerBytes.toString('hex');
+	const rewardShannons = raw.readBigUInt64LE(42);
+	const ttlBlockHeight = raw.readBigUInt64LE(50);
+	const capabilityHash = '0x' + raw.subarray(58, 90).toString('hex');
+
+	return {
+		out_point: cell.out_point,
+		status: JOB_STATUS[statusByte],
+		poster_lock_args: posterLockArgs,
+		worker_lock_args: workerLockArgs,
+		reward_ckb: Number(rewardShannons) / 1e8,
+		ttl_block_height: ttlBlockHeight.toString(),
+		capability_hash: capabilityHash,
+		capacity_shannons: BigInt(cell.output.capacity).toString(),
+	};
+}
+
+// GET /jobs?status=Open&capability_hash=0x...
+router.get('/', async (req, res) => {
+	if (!JOB_TYPE_CODE_HASH) {
+		res.status(503).json({ error: 'JOB_CELL_TYPE_CODE_HASH not configured' });
+		return;
+	}
+
+	const { status, capability_hash } = req.query as Record<string, string | undefined>;
+
+	const script: Script = {
+		code_hash: JOB_TYPE_CODE_HASH,
+		hash_type: 'data1',
+		args: '0x',
+	};
+
+	try {
+		const result = await getCellsByScript(script, 'type', 200);
+		let jobs = result.objects
+			.map(parseJobCell)
+			.filter((j): j is ParsedJob => j !== null);
+
+		if (status && JOB_STATUS.includes(status as JobStatus)) {
+			jobs = jobs.filter((j) => j.status === status);
+		}
+		if (capability_hash) {
+			jobs = jobs.filter((j) => j.capability_hash === capability_hash);
+		}
+
+		res.json({ jobs, count: jobs.length });
+	} catch (e) {
+		res.status(502).json({ error: String(e) });
+	}
+});
+
+// POST /jobs — post a new job (proxies to nerve-core TX builder).
+router.post('/', async (req, res) => {
+	try {
+		const response = await fetch(`${CORE_URL}/tx/build-and-broadcast`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ intent: 'post_job', ...req.body }),
+		});
+		const data = await response.json();
+		res.status(response.status).json(data);
+	} catch (e) {
+		res.status(502).json({ error: String(e) });
+	}
+});
+
+// GET /jobs/:tx_hash/:index — get a specific job cell by outpoint.
+router.get('/:tx_hash/:index', async (req, res) => {
+	const { tx_hash, index } = req.params;
+	const indexNum = parseInt(index, 10);
+	if (isNaN(indexNum)) {
+		res.status(400).json({ error: 'index must be a number' });
+		return;
+	}
+
+	try {
+		const cell = await getLiveCell({ tx_hash, index: `0x${indexNum.toString(16)}` });
+		if (!cell) {
+			res.status(404).json({ error: 'cell not found' });
+			return;
+		}
+		const job = parseJobCell(cell);
+		if (!job) {
+			res.status(422).json({ error: 'cell is not a valid job cell' });
+			return;
+		}
+		res.json(job);
+	} catch (e) {
+		res.status(502).json({ error: String(e) });
+	}
+});
+
+export default router;
