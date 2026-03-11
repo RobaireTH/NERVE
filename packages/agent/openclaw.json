@@ -1,0 +1,28 @@
+{
+	"agents": {
+		"defaults": {
+			"model": "claude-opus-4-6"
+		}
+	},
+	"providers": {
+		"anthropic": {
+			"apiKey": "${ANTHROPIC_API_KEY}"
+		}
+	},
+	"skills": {
+		"entries": [
+			"./skills/supervisor",
+			"./skills/marketplace-worker",
+			"./skills/payment-worker",
+			"./skills/defi-worker",
+			"./skills/chain-scanner"
+		]
+	},
+	"crons": {
+		"job-scanner": {
+			"schedule": "*/10 * * * *",
+			"agent": "nerve",
+			"task": "Run heartbeat job scan"
+		}
+	}
+}
