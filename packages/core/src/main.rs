@@ -14,6 +14,7 @@ mod state;
 mod tx_builder;
 
 use api::{
+	admin::deploy_bin,
 	agent::{get_balance, get_cells},
 	tx::{broadcast_tx, build_and_broadcast, build_tx, estimate_fee, tx_status},
 };
@@ -34,6 +35,8 @@ async fn main() {
 		// Agent identity endpoints.
 		.route("/agent/balance", get(get_balance))
 		.route("/agent/cells", get(get_cells))
+		// Admin endpoints (deployment tooling — not exposed externally in production).
+		.route("/admin/deploy-bin", post(deploy_bin))
 		// Transaction builder endpoints.
 		.route("/tx/build", post(build_tx))
 		.route("/tx/broadcast", post(broadcast_tx))
