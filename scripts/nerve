@@ -13,7 +13,10 @@
 #   nerve cancel --job <tx_hash>:<index>
 #   nerve status --job <tx_hash>:<index>
 #   nerve tx --hash <tx_hash>
+#   nerve swap --pool <tx_hash>:<index> --amount <CKB> [--slippage <bps>]
+#   nerve create-pool --seed-ckb <CKB> --seed-tokens <amount>
 #   nerve demo
+#   nerve telegram
 #
 # Environment:
 #   CORE_URL  (default: http://localhost:8080)
@@ -42,7 +45,10 @@ Usage:
   nerve cancel --job <tx_hash>:<index>
   nerve status --job <tx_hash>:<index>
   nerve tx --hash <tx_hash>
+  nerve swap --pool <tx_hash>:<index> --amount <CKB> [--slippage <bps>]
+  nerve create-pool --seed-ckb <CKB> --seed-tokens <amount>
   nerve demo [--non-interactive]
+  nerve telegram
 
 Environment:
   CORE_URL  (default: http://localhost:8080)
@@ -196,8 +202,42 @@ cmd_tx() {
 	pretty "$(curl -sf "$CORE_URL/tx/status?tx_hash=$hash")"
 }
 
+cmd_swap() {
+	local pool="" amount="" slippage="100"
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--pool)     pool="$2";     shift 2 ;;
+			--amount)   amount="$2";   shift 2 ;;
+			--slippage) slippage="$2"; shift 2 ;;
+			*) echo "error: unknown argument: $1" >&2; exit 1 ;;
+		esac
+	done
+	require_arg "--pool"   "$pool"
+	require_arg "--amount" "$amount"
+	parse_job_ref "$pool"
+	post_intent "{\"intent\":\"swap\",\"pool_tx_hash\":\"$JOB_TX_HASH\",\"pool_index\":$JOB_INDEX,\"amount_ckb\":$amount,\"slippage_bps\":$slippage}"
+}
+
+cmd_create_pool() {
+	local seed_ckb="" seed_tokens=""
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--seed-ckb)    seed_ckb="$2";    shift 2 ;;
+			--seed-tokens) seed_tokens="$2"; shift 2 ;;
+			*) echo "error: unknown argument: $1" >&2; exit 1 ;;
+		esac
+	done
+	require_arg "--seed-ckb"    "$seed_ckb"
+	require_arg "--seed-tokens" "$seed_tokens"
+	post_intent "{\"intent\":\"create_pool\",\"seed_ckb\":$seed_ckb,\"seed_token_amount\":$seed_tokens}"
+}
+
 cmd_demo() {
 	exec "$SCRIPT_DIR/start_demo.sh" "$@"
+}
+
+cmd_telegram() {
+	exec "$SCRIPT_DIR/test_telegram_demo.sh" "$@"
 }
 
 # ── Dispatch ───────────────────────────────────────────────────────────────────
@@ -214,8 +254,11 @@ case "$COMMAND" in
 	complete) cmd_complete "$@" ;;
 	cancel)   cmd_cancel   "$@" ;;
 	status)   cmd_status   "$@" ;;
-	tx)       cmd_tx       "$@" ;;
-	demo)     cmd_demo     "$@" ;;
+	tx)          cmd_tx          "$@" ;;
+	swap)        cmd_swap        "$@" ;;
+	create-pool) cmd_create_pool "$@" ;;
+	demo)        cmd_demo        "$@" ;;
+	telegram)    cmd_telegram    "$@" ;;
 	help|--help|-h|"") usage ;;
 	*) echo "error: unknown command '$COMMAND'. Run 'nerve help'." >&2; exit 1 ;;
 esac
