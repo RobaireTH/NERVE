@@ -149,17 +149,88 @@ COMPLETE_TX=$(echo "$COMPLETE_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f
 ok "Job completed: $COMPLETE_TX"
 echo "   Explorer: https://testnet.explorer.nervos.org/transaction/$COMPLETE_TX"
 
+ok "Flow 1 complete: Agent Marketplace"
+
+# ── Flow 2: DeFi Swap ─────────────────────────────────────────────────────────
+
+POOL_TX_HASH="${DEMO_POOL_TX_HASH:-}"
+SWAP_TX=""
+if [[ -n "$POOL_TX_HASH" && -n "${MOCK_AMM_TYPE_CODE_HASH:-}" ]]; then
+	step "FLOW 2: DeFi Execution"
+	pending "Worker: swapping 10 CKB via mock AMM pool"
+	SWAP_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
+		-H "Content-Type: application/json" \
+		-d "{\"intent\":\"swap\",\"pool_tx_hash\":\"$POOL_TX_HASH\",\"pool_index\":0,\"amount_ckb\":10,\"slippage_bps\":100}" 2>&1) || true
+	SWAP_TX=$(echo "$SWAP_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
+	if [[ -n "$SWAP_TX" ]]; then
+		ok "Swap tx: $SWAP_TX"
+		echo "   Explorer: https://testnet.explorer.nervos.org/transaction/$SWAP_TX"
+	else
+		echo "   Swap skipped or failed: $SWAP_RESP"
+	fi
+	pending "Waiting 12s..."
+	sleep 12
+	ok "Flow 2 complete: DeFi Swap"
+else
+	echo
+	echo "── FLOW 2: DeFi Execution (skipped) ──"
+	echo "   Set DEMO_POOL_TX_HASH and deploy mock_amm to enable."
+fi
+
+# ── Flow 3: Capability Proof ──────────────────────────────────────────────────
+
+CAP_TX=""
+if [[ -n "${CAP_NFT_TYPE_CODE_HASH:-}" ]]; then
+	step "FLOW 3: Capability Proof"
+	pending "Worker: minting capability NFT (text_summarize)"
+	# Use a fixed demo hash for the text_summarize capability.
+	DEMO_CAP_HASH="0x0000000000000000000000000000000000000000000000000000000000000001"
+	CAP_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
+		-H "Content-Type: application/json" \
+		-d "{\"intent\":\"mint_capability\",\"capability_hash\":\"$DEMO_CAP_HASH\"}" 2>&1) || true
+	CAP_TX=$(echo "$CAP_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
+	if [[ -n "$CAP_TX" ]]; then
+		ok "Capability NFT: $CAP_TX"
+		echo "   Explorer: https://testnet.explorer.nervos.org/transaction/$CAP_TX"
+		echo "   Proof type: Signed attestation"
+	else
+		echo "   Capability mint skipped or failed: $CAP_RESP"
+	fi
+	ok "Flow 3 complete: Capability Proof"
+else
+	echo
+	echo "── FLOW 3: Capability Proof (skipped) ──"
+	echo "   Deploy capability_nft contract to enable."
+fi
+
 # ── Summary ────────────────────────────────────────────────────────────────────
 
 echo
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "NERVE Demo — Marketplace Flow Complete"
+echo "NERVE Demo — All Flows Complete"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  post:     $JOB_TX_HASH"
-echo "  reserve:  $RESERVE_TX"
-echo "  claim:    $CLAIM_TX"
-echo "  complete: $COMPLETE_TX"
 echo
-echo "  Worker ($WORKER_LOCK_ARGS) received $REWARD_CKB CKB."
-echo "  Reputation update: pending (dispute window active)."
+echo "  FLOW 1: Agent Marketplace"
+echo "    post:     $JOB_TX_HASH"
+echo "    reserve:  $RESERVE_TX"
+echo "    claim:    $CLAIM_TX"
+echo "    complete: $COMPLETE_TX"
+echo "    Worker ($WORKER_LOCK_ARGS) received $REWARD_CKB CKB."
+echo
+echo "  FLOW 2: DeFi Swap"
+if [[ -n "$SWAP_TX" ]]; then
+	echo "    swap:     $SWAP_TX"
+else
+	echo "    (skipped — set DEMO_POOL_TX_HASH)"
+fi
+echo
+echo "  FLOW 3: Capability Proof"
+if [[ -n "$CAP_TX" ]]; then
+	echo "    cap NFT:  $CAP_TX"
+	echo "    proof:    signed attestation"
+else
+	echo "    (skipped — deploy capability_nft)"
+fi
+echo
+echo "  Explorer: https://testnet.explorer.nervos.org/aggron"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

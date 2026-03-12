@@ -16,6 +16,9 @@
 #   nerve swap --pool <tx_hash>:<index> --amount <CKB> [--slippage <bps>]
 #   nerve create-pool --seed-ckb <CKB> --seed-tokens <amount>
 #   nerve mint-capability --hash <capability_hash>
+#   nerve create-reputation
+#   nerve propose-rep --rep <tx_hash>:<index> --type <1|2> [--window <blocks>]
+#   nerve finalize-rep --rep <tx_hash>:<index>
 #   nerve demo
 #   nerve telegram
 #
@@ -49,6 +52,9 @@ Usage:
   nerve swap --pool <tx_hash>:<index> --amount <CKB> [--slippage <bps>]
   nerve create-pool --seed-ckb <CKB> --seed-tokens <amount>
   nerve mint-capability --hash <capability_hash>
+  nerve create-reputation
+  nerve propose-rep --rep <tx_hash>:<index> --type <1|2> [--window <blocks>]
+  nerve finalize-rep --rep <tx_hash>:<index>
   nerve demo [--non-interactive]
   nerve telegram
 
@@ -234,6 +240,39 @@ cmd_create_pool() {
 	post_intent "{\"intent\":\"create_pool\",\"seed_ckb\":$seed_ckb,\"seed_token_amount\":$seed_tokens}"
 }
 
+cmd_create_reputation() {
+	post_intent '{"intent":"create_reputation"}'
+}
+
+cmd_propose_rep() {
+	local rep="" type="" window="100"
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--rep)    rep="$2";    shift 2 ;;
+			--type)   type="$2";   shift 2 ;;
+			--window) window="$2"; shift 2 ;;
+			*) echo "error: unknown argument: $1" >&2; exit 1 ;;
+		esac
+	done
+	require_arg "--rep"  "$rep"
+	require_arg "--type" "$type"
+	parse_job_ref "$rep"
+	post_intent "{\"intent\":\"propose_reputation\",\"rep_tx_hash\":\"$JOB_TX_HASH\",\"rep_index\":$JOB_INDEX,\"propose_type\":$type,\"dispute_window_blocks\":$window}"
+}
+
+cmd_finalize_rep() {
+	local rep=""
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--rep) rep="$2"; shift 2 ;;
+			*) echo "error: unknown argument: $1" >&2; exit 1 ;;
+		esac
+	done
+	require_arg "--rep" "$rep"
+	parse_job_ref "$rep"
+	post_intent "{\"intent\":\"finalize_reputation\",\"rep_tx_hash\":\"$JOB_TX_HASH\",\"rep_index\":$JOB_INDEX}"
+}
+
 cmd_mint_capability() {
 	local hash=""
 	while [[ $# -gt 0 ]]; do
@@ -271,8 +310,11 @@ case "$COMMAND" in
 	tx)          cmd_tx          "$@" ;;
 	swap)        cmd_swap        "$@" ;;
 	create-pool)      cmd_create_pool      "$@" ;;
-	mint-capability)  cmd_mint_capability  "$@" ;;
-	demo)             cmd_demo             "$@" ;;
+	mint-capability)   cmd_mint_capability   "$@" ;;
+	create-reputation) cmd_create_reputation "$@" ;;
+	propose-rep)       cmd_propose_rep       "$@" ;;
+	finalize-rep)      cmd_finalize_rep      "$@" ;;
+	demo)              cmd_demo              "$@" ;;
 	telegram)    cmd_telegram    "$@" ;;
 	help|--help|-h|"") usage ;;
 	*) echo "error: unknown command '$COMMAND'. Run 'nerve help'." >&2; exit 1 ;;
