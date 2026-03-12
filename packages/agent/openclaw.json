@@ -9,6 +9,12 @@
 			"apiKey": "${ANTHROPIC_API_KEY}"
 		}
 	},
+	"channels": {
+		"telegram": {
+			"token": "${OPENCLAW_TELEGRAM_TOKEN}",
+			"agentName": "NERVE"
+		}
+	},
 	"skills": {
 		"entries": [
 			"./skills/supervisor",
