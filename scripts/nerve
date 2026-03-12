@@ -15,6 +15,7 @@
 #   nerve tx --hash <tx_hash>
 #   nerve swap --pool <tx_hash>:<index> --amount <CKB> [--slippage <bps>]
 #   nerve create-pool --seed-ckb <CKB> --seed-tokens <amount>
+#   nerve mint-capability --hash <capability_hash>
 #   nerve demo
 #   nerve telegram
 #
@@ -47,6 +48,7 @@ Usage:
   nerve tx --hash <tx_hash>
   nerve swap --pool <tx_hash>:<index> --amount <CKB> [--slippage <bps>]
   nerve create-pool --seed-ckb <CKB> --seed-tokens <amount>
+  nerve mint-capability --hash <capability_hash>
   nerve demo [--non-interactive]
   nerve telegram
 
@@ -232,6 +234,18 @@ cmd_create_pool() {
 	post_intent "{\"intent\":\"create_pool\",\"seed_ckb\":$seed_ckb,\"seed_token_amount\":$seed_tokens}"
 }
 
+cmd_mint_capability() {
+	local hash=""
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--hash) hash="$2"; shift 2 ;;
+			*) echo "error: unknown argument: $1" >&2; exit 1 ;;
+		esac
+	done
+	require_arg "--hash" "$hash"
+	post_intent "{\"intent\":\"mint_capability\",\"capability_hash\":\"$hash\"}"
+}
+
 cmd_demo() {
 	exec "$SCRIPT_DIR/start_demo.sh" "$@"
 }
@@ -256,8 +270,9 @@ case "$COMMAND" in
 	status)   cmd_status   "$@" ;;
 	tx)          cmd_tx          "$@" ;;
 	swap)        cmd_swap        "$@" ;;
-	create-pool) cmd_create_pool "$@" ;;
-	demo)        cmd_demo        "$@" ;;
+	create-pool)      cmd_create_pool      "$@" ;;
+	mint-capability)  cmd_mint_capability  "$@" ;;
+	demo)             cmd_demo             "$@" ;;
 	telegram)    cmd_telegram    "$@" ;;
 	help|--help|-h|"") usage ;;
 	*) echo "error: unknown command '$COMMAND'. Run 'nerve help'." >&2; exit 1 ;;
