@@ -124,6 +124,9 @@ async fn fetch_job_cell(
 }
 
 /// Gathers enough of the agent's own secp256k1 cells to cover `needed` shannons (fee source).
+///
+/// Only uses plain cells (no type script) to avoid UTXO conflicts with typed cell inputs
+/// (job, reputation, pool, identity) in the same transaction.
 async fn gather_fee_inputs(
 	state: &AppState,
 	needed: u64,
@@ -138,6 +141,11 @@ async fn gather_fee_inputs(
 	let mut inputs = Vec::new();
 	let mut capacity: u64 = 0;
 	for cell in &cells.objects {
+		// Skip cells with a type script — they are protocol cells (job, reputation, etc.)
+		// and consuming them here would cause a UTXO conflict if they appear as typed inputs.
+		if cell.output.type_script.is_some() {
+			continue;
+		}
 		let cap = parse_capacity_hex(&cell.output.capacity)?;
 		inputs.push(json!({ "previous_output": cell.out_point, "since": "0x0" }));
 		capacity += cap;
