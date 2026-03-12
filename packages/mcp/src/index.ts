@@ -2,6 +2,7 @@ import express from 'express';
 import chainRouter from './routes/chain.js';
 import jobsRouter from './routes/jobs.js';
 import agentsRouter from './routes/agents.js';
+import fiberRouter from './routes/fiber.js';
 
 const app = express();
 const PORT = Number(process.env.MCP_PORT ?? 8081);
@@ -15,6 +16,7 @@ app.get('/health', (_req, res) => {
 app.use('/chain', chainRouter);
 app.use('/jobs', jobsRouter);
 app.use('/agents', agentsRouter);
+app.use('/fiber', fiberRouter);
 
 app.listen(PORT, () => {
 	console.log(`nerve-mcp bridge listening on :${PORT}`);
