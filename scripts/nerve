@@ -1,0 +1,221 @@
+#!/usr/bin/env bash
+# nerve — NERVE agent CLI.
+#
+# Wraps the TX Builder (nerve-core) and MCP HTTP bridge REST APIs.
+#
+# Usage:
+#   nerve balance
+#   nerve jobs [--status Open|Reserved|Claimed] [--capability 0x...]
+#   nerve post --reward <CKB> [--ttl <blocks>] [--capability <0x...>]
+#   nerve reserve --job <tx_hash>:<index> --worker <lock_args>
+#   nerve claim --job <tx_hash>:<index>
+#   nerve complete --job <tx_hash>:<index> --worker <lock_args>
+#   nerve cancel --job <tx_hash>:<index>
+#   nerve status --job <tx_hash>:<index>
+#   nerve tx --hash <tx_hash>
+#   nerve demo
+#
+# Environment:
+#   CORE_URL  (default: http://localhost:8080)
+#   MCP_URL   (default: http://localhost:8081)
+
+set -euo pipefail
+
+CORE_URL="${CORE_URL:-http://localhost:8080}"
+MCP_URL="${MCP_URL:-http://localhost:8081}"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+
+usage() {
+	cat <<'EOF'
+nerve — NERVE agent CLI
+
+Usage:
+  nerve balance
+  nerve jobs [--status Open|Reserved|Claimed] [--capability 0x...]
+  nerve post --reward <CKB> [--ttl <blocks>] [--capability <0x...>]
+  nerve reserve --job <tx_hash>:<index> --worker <lock_args>
+  nerve claim --job <tx_hash>:<index>
+  nerve complete --job <tx_hash>:<index> --worker <lock_args>
+  nerve cancel --job <tx_hash>:<index>
+  nerve status --job <tx_hash>:<index>
+  nerve tx --hash <tx_hash>
+  nerve demo [--non-interactive]
+
+Environment:
+  CORE_URL  (default: http://localhost:8080)
+  MCP_URL   (default: http://localhost:8081)
+EOF
+	exit 0
+}
+
+require_arg() {
+	if [[ -z "${2:-}" ]]; then
+		echo "error: $1 is required" >&2; exit 1
+	fi
+}
+
+pretty() {
+	# Pretty-print JSON if jq is available, otherwise raw output.
+	if command -v jq &>/dev/null; then
+		echo "$1" | jq .
+	else
+		echo "$1"
+	fi
+}
+
+post_intent() {
+	local body="$1"
+	pretty "$(curl -sf -X POST "$CORE_URL/tx/build-and-broadcast" \
+		-H "Content-Type: application/json" \
+		-d "$body")"
+}
+
+parse_job_ref() {
+	# Split "0xhash:index" into JOB_TX_HASH and JOB_INDEX globals.
+	local ref="$1"
+	JOB_TX_HASH="${ref%%:*}"
+	JOB_INDEX="${ref##*:}"
+}
+
+# ── Subcommands ────────────────────────────────────────────────────────────────
+
+cmd_balance() {
+	pretty "$(curl -sf "$CORE_URL/agent/balance")"
+}
+
+cmd_jobs() {
+	local status="" capability=""
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--status)     status="$2";     shift 2 ;;
+			--capability) capability="$2"; shift 2 ;;
+			*) echo "error: unknown argument: $1" >&2; exit 1 ;;
+		esac
+	done
+	local query=""
+	[[ -n "$status" ]]     && query="?status=$status"
+	[[ -n "$capability" ]] && query="${query:+${query}&}${query:-?}capability_hash=$capability"
+	pretty "$(curl -sf "$MCP_URL/jobs${query}")"
+}
+
+cmd_post() {
+	local reward="" ttl="200" capability="0x0000000000000000000000000000000000000000000000000000000000000000"
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--reward)     reward="$2";     shift 2 ;;
+			--ttl)        ttl="$2";        shift 2 ;;
+			--capability) capability="$2"; shift 2 ;;
+			*) echo "error: unknown argument: $1" >&2; exit 1 ;;
+		esac
+	done
+	require_arg "--reward" "$reward"
+	post_intent "{\"intent\":\"post_job\",\"reward_ckb\":$reward,\"ttl_blocks\":$ttl,\"capability_hash\":\"$capability\"}"
+}
+
+cmd_reserve() {
+	local job="" worker=""
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--job)    job="$2";    shift 2 ;;
+			--worker) worker="$2"; shift 2 ;;
+			*) echo "error: unknown argument: $1" >&2; exit 1 ;;
+		esac
+	done
+	require_arg "--job"    "$job"
+	require_arg "--worker" "$worker"
+	parse_job_ref "$job"
+	post_intent "{\"intent\":\"reserve_job\",\"job_tx_hash\":\"$JOB_TX_HASH\",\"job_index\":$JOB_INDEX,\"worker_lock_args\":\"$worker\"}"
+}
+
+cmd_claim() {
+	local job=""
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--job) job="$2"; shift 2 ;;
+			*) echo "error: unknown argument: $1" >&2; exit 1 ;;
+		esac
+	done
+	require_arg "--job" "$job"
+	parse_job_ref "$job"
+	post_intent "{\"intent\":\"claim_job\",\"job_tx_hash\":\"$JOB_TX_HASH\",\"job_index\":$JOB_INDEX}"
+}
+
+cmd_complete() {
+	local job="" worker=""
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--job)    job="$2";    shift 2 ;;
+			--worker) worker="$2"; shift 2 ;;
+			*) echo "error: unknown argument: $1" >&2; exit 1 ;;
+		esac
+	done
+	require_arg "--job"    "$job"
+	require_arg "--worker" "$worker"
+	parse_job_ref "$job"
+	post_intent "{\"intent\":\"complete_job\",\"job_tx_hash\":\"$JOB_TX_HASH\",\"job_index\":$JOB_INDEX,\"worker_lock_args\":\"$worker\"}"
+}
+
+cmd_cancel() {
+	local job=""
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--job) job="$2"; shift 2 ;;
+			*) echo "error: unknown argument: $1" >&2; exit 1 ;;
+		esac
+	done
+	require_arg "--job" "$job"
+	parse_job_ref "$job"
+	post_intent "{\"intent\":\"cancel_job\",\"job_tx_hash\":\"$JOB_TX_HASH\",\"job_index\":$JOB_INDEX}"
+}
+
+cmd_status() {
+	local job=""
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--job) job="$2"; shift 2 ;;
+			*) echo "error: unknown argument: $1" >&2; exit 1 ;;
+		esac
+	done
+	require_arg "--job" "$job"
+	parse_job_ref "$job"
+	pretty "$(curl -sf "$MCP_URL/jobs/$JOB_TX_HASH/$JOB_INDEX")"
+}
+
+cmd_tx() {
+	local hash=""
+	while [[ $# -gt 0 ]]; do
+		case "$1" in
+			--hash) hash="$2"; shift 2 ;;
+			*) echo "error: unknown argument: $1" >&2; exit 1 ;;
+		esac
+	done
+	require_arg "--hash" "$hash"
+	pretty "$(curl -sf "$CORE_URL/tx/status?tx_hash=$hash")"
+}
+
+cmd_demo() {
+	exec "$SCRIPT_DIR/start_demo.sh" "$@"
+}
+
+# ── Dispatch ───────────────────────────────────────────────────────────────────
+
+COMMAND="${1:-}"
+shift || true
+
+case "$COMMAND" in
+	balance)  cmd_balance  "$@" ;;
+	jobs)     cmd_jobs     "$@" ;;
+	post)     cmd_post     "$@" ;;
+	reserve)  cmd_reserve  "$@" ;;
+	claim)    cmd_claim    "$@" ;;
+	complete) cmd_complete "$@" ;;
+	cancel)   cmd_cancel   "$@" ;;
+	status)   cmd_status   "$@" ;;
+	tx)       cmd_tx       "$@" ;;
+	demo)     cmd_demo     "$@" ;;
+	help|--help|-h|"") usage ;;
+	*) echo "error: unknown command '$COMMAND'. Run 'nerve help'." >&2; exit 1 ;;
+esac
