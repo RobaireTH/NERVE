@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Cooperatively close a Fiber payment channel.
 #
-# Usage: close_channel.sh --channel-id <id>
+# Usage: close_channel.sh --channel-id 0x... [--force]
 # Output: JSON with close result.
 #
 # Environment:
@@ -11,10 +11,12 @@ set -euo pipefail
 
 MCP_URL="${MCP_URL:-http://localhost:8081}"
 CHANNEL_ID=""
+FORCE=""
 
 while [[ $# -gt 0 ]]; do
 	case "$1" in
 		--channel-id) CHANNEL_ID="$2"; shift 2 ;;
+		--force)      FORCE="?force=true"; shift ;;
 		*) echo "{\"error\": \"unknown argument: $1\"}" >&2; exit 1 ;;
 	esac
 done
@@ -24,4 +26,4 @@ if [[ -z "$CHANNEL_ID" ]]; then
 	exit 1
 fi
 
-curl -sf -X DELETE "$MCP_URL/fiber/channels/$CHANNEL_ID"
+curl -sf -X DELETE "$MCP_URL/fiber/channels/$CHANNEL_ID$FORCE"

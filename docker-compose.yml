@@ -23,6 +23,23 @@ services:
 			core:
 				condition: service_healthy
 
+	fiber:
+		image: nervosnetwork/fiber:latest
+		ports:
+			- "${FIBER_RPC_PORT:-8227}:8227"
+			- "${FIBER_P2P_PORT:-8228}:8228"
+		volumes:
+			- ./fiber-data:/data
+		env_file: .env
+		command: ["fnn", "--config-dir", "/data"]
+		healthcheck:
+			test: ["CMD", "curl", "-sf", "-X", "POST", "http://localhost:8227",
+			       "-H", "Content-Type: application/json",
+			       "-d", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"info_node_info\",\"params\":{}}"]
+			interval: 15s
+			timeout: 5s
+			retries: 5
+
 	agent:
 		image: node:20-alpine
 		working_dir: /workspace
