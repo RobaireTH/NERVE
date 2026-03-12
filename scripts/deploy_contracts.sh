@@ -7,7 +7,7 @@
 #   - Sufficient testnet CKB in the agent wallet
 #
 # Usage:
-#   ./scripts/deploy_contracts.sh [agent_identity|job_cell|capability_nft|reputation|all]
+#   ./scripts/deploy_contracts.sh [agent_identity|job_cell|capability_nft|reputation|mock_amm|all]
 #
 # Output:
 #   Appends/updates deployed addresses in .env.deployed
@@ -85,14 +85,18 @@ case "$CONTRACT" in
 	reputation)
 		deploy_binary "reputation" "REPUTATION_TYPE_CODE_HASH" "REPUTATION_DEP_TX_HASH"
 		;;
+	mock_amm)
+		deploy_binary "mock_amm" "MOCK_AMM_TYPE_CODE_HASH" "MOCK_AMM_DEP_TX_HASH"
+		;;
 	all)
 		deploy_binary "agent_identity" "AGENT_IDENTITY_TYPE_CODE_HASH" "AGENT_IDENTITY_DEP_TX_HASH"
 		deploy_binary "job_cell"       "JOB_CELL_TYPE_CODE_HASH"       "JOB_CELL_DEP_TX_HASH"
 		deploy_binary "capability_nft" "CAP_NFT_TYPE_CODE_HASH"        "CAP_NFT_DEP_TX_HASH"
 		deploy_binary "reputation"     "REPUTATION_TYPE_CODE_HASH"     "REPUTATION_DEP_TX_HASH"
+		deploy_binary "mock_amm"       "MOCK_AMM_TYPE_CODE_HASH"       "MOCK_AMM_DEP_TX_HASH"
 		;;
 	*)
-		echo "Usage: $0 [agent_identity|job_cell|capability_nft|reputation|all]" >&2; exit 1
+		echo "Usage: $0 [agent_identity|job_cell|capability_nft|reputation|mock_amm|all]" >&2; exit 1
 		;;
 esac
 
