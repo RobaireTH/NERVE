@@ -1,3 +1,4 @@
+pub mod capability;
 pub mod identity;
 pub mod intents;
 pub mod job;

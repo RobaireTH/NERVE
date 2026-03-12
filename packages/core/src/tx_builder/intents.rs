@@ -4,6 +4,7 @@ use serde_json::Value;
 use crate::{errors::TxBuildError, state::ckb_to_shannons, AppState};
 
 use super::{
+	capability::build_mint_capability,
 	identity::build_spawn_agent,
 	job::{
 		build_cancel_job, build_claim_job, build_complete_job, build_post_job,
@@ -68,6 +69,11 @@ pub enum BuildRequest {
 	CreatePool {
 		seed_ckb: f64,
 		seed_token_amount: u64,
+	},
+	/// Mint a capability NFT with a signed attestation proof.
+	MintCapability {
+		/// blake2b-256 hash of the capability type (0x-prefixed hex).
+		capability_hash: String,
 	},
 }
 
@@ -145,6 +151,12 @@ pub async fn build_and_sign(
 			let (tx, tx_hash) =
 				build_create_pool(state, ckb_to_shannons(seed_ckb), seed_token_amount as u128)
 					.await?;
+			Ok(BuildResult { tx_hash, tx })
+		}
+
+		BuildRequest::MintCapability { capability_hash } => {
+			let cap_hash = parse_hash_32(&capability_hash)?;
+			let (tx, tx_hash) = build_mint_capability(state, &cap_hash).await?;
 			Ok(BuildResult { tx_hash, tx })
 		}
 	}
