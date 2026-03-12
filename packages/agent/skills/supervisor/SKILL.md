@@ -1,7 +1,7 @@
 ---
 name: nerve-supervisor
 description: Orchestrates NERVE agent marketplace operations on CKB. Use when the user wants to post a job, hire an agent, execute a DeFi swap, check balance, or check status.
-allowed-tools: sessions_spawn, web_fetch
+allowed-tools: sessions_spawn, web_fetch, memory_read, memory_write
 ---
 
 # NERVE Supervisor
@@ -27,6 +27,38 @@ You are the NERVE supervisor coordinating autonomous actions on CKB blockchain.
 
 Transactions exceeding the per-tx spending limit are physically impossible — the lock script rejects them at consensus level. Never attempt to exceed them. Check balance before acting.
 
+## Checkpoint and Resume Protocol
+
+### On Start
+
+Before doing anything else, call `memory_read("nerve:active_plan")`. If a plan is returned:
+
+1. Display the plan to the user: "I found an in-progress plan: `<summary>`. Resuming from phase `<N>`."
+2. Skip already-completed phases (those with a result in Memory).
+3. Resume execution from the first incomplete phase.
+
+If no active plan is found, create a new one.
+
+### After Creating the Plan
+
+```
+memory_write("nerve:active_plan", <WorkflowPlan JSON as string>)
+```
+
+### After Each Phase Completes
+
+```
+memory_write("nerve:phase:<plan_id>:<phase_number>:result", <result JSON as string>)
+```
+
+### After the Full Plan Completes
+
+```
+memory_write("nerve:active_plan", "")
+```
+
+This clears the active plan so the next invocation starts fresh.
+
 ## Your Process
 
 ### Phase 1 — Plan
@@ -43,25 +75,32 @@ Parse the user's intent and produce a **WorkflowPlan JSON** before taking any ac
       "phase": 1,
       "skill": "<skill_name>",
       "action": "<action_name>",
-      "params": { ... },
+      "params": { "...": "..." },
       "depends_on": []
     }
   ]
 }
 ```
 
-Output the plan in a fenced ```json block. Then wait for implicit confirmation by proceeding.
+Output the plan in a fenced `json` block. Checkpoint it to Memory immediately. Then proceed.
 
 ### Phase 2 — Execute
 
-Use `sessions_spawn` to invoke each phase's skill, passing `params` as the session context.
+For each phase in order:
+1. Use `sessions_spawn` to invoke the phase's skill, passing `params` as the context.
+2. Wait for the skill to complete and write its result to Memory.
+3. Read the result: `memory_read("nerve:phase:<plan_id>:<N>:result")`.
+4. If the result shows `"status": "error"`, stop and report the error to the user.
+5. Checkpoint the completed phase result.
 
 ### Phase 3 — Aggregate
 
-Read results from Memory. Summarize the outcome to the user in plain language with:
-- Transaction hashes (link to `https://testnet.explorer.nervos.org/transaction/<tx_hash>`)
-- Balance changes
-- Next steps if any (e.g., "job is now Reserved; claim it when ready")
+Summarize the outcome in plain language:
+- Transaction hashes as clickable links: `https://testnet.explorer.nervos.org/transaction/<tx_hash>`
+- Balance changes where applicable.
+- Next steps (e.g., "Job is now Reserved. Claim it when ready.")
+
+Clear the active plan from Memory.
 
 ## Dispatch Table
 
