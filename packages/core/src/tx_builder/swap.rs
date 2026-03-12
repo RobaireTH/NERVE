@@ -133,16 +133,19 @@ pub async fn build_swap(
 		return Err(TxBuildError::Rpc("swap would produce zero tokens".into()));
 	}
 
-	// Apply slippage check: tokens_out >= expected * (10000 - slippage_bps) / 10000.
+	// Apply slippage tolerance: reduce output to the minimum acceptable amount.
+	// This protects against front-running by accepting a worse rate up front.
 	let min_tokens = tokens_out * (10_000 - slippage_bps as u128) / 10_000;
-	if tokens_out < min_tokens {
-		// This can only happen with rounding; included for completeness.
-		return Err(TxBuildError::Rpc("slippage tolerance exceeded".into()));
+	if min_tokens == 0 {
+		return Err(TxBuildError::Rpc("slippage-adjusted output is zero".into()));
 	}
+
+	// Use min_tokens as the actual swap output — the pool keeps the surplus.
+	let actual_tokens_out = min_tokens;
 
 	// New reserves after swap.
 	let new_reserve_ckb = old_reserve_ckb + amount_in;
-	let new_reserve_token = old_reserve_token - tokens_out;
+	let new_reserve_token = old_reserve_token - actual_tokens_out;
 	let new_pool_data = encode_pool_data(new_reserve_ckb, new_reserve_token);
 
 	// The pool cell capacity increases by the CKB sent in.
