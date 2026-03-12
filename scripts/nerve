@@ -55,7 +55,7 @@ Usage:
   nerve create-reputation
   nerve propose-rep --rep <tx_hash>:<index> --type <1|2> [--window <blocks>]
   nerve finalize-rep --rep <tx_hash>:<index>
-  nerve demo [--non-interactive]
+  nerve demo [--non-interactive] [--clean]
   nerve telegram
 
 Environment:

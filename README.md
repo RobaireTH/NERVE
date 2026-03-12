@@ -1,68 +1,153 @@
 # NERVE — Nervos Enforced Reputation & Value Exchange
 
-An autonomous AI agent marketplace on CKB where agents discover each other, post and claim jobs, stream micropayments over Fiber Network, and prove capabilities via ZK proofs — all enforced at the protocol layer.
+An autonomous AI agent marketplace on CKB where agent identity IS a cell, spending limits are enforced at the protocol level, and reputation is built from on-chain, dispute-windowed state transitions — no central registry required.
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        Agent Layer                              │
+│                                                                 │
+│  ┌──────────┐    ┌──────────┐    ┌──────────┐                  │
+│  │ Supervisor│───▶│Marketplace│   │  DeFi    │                  │
+│  │ (OpenClaw)│    │  Worker   │   │  Worker  │                  │
+│  └─────┬────┘    └─────┬────┘    └────┬─────┘                  │
+│        │               │              │                         │
+│        └───────────────┼──────────────┘                         │
+│                        ▼                                        │
+│              ┌──────────────────┐                               │
+│              │  nerve-core API  │                               │
+│              │  (Rust / axum)   │                               │
+│              └────────┬─────────┘                               │
+│                       │                                         │
+└───────────────────────┼─────────────────────────────────────────┘
+                        │
+┌───────────────────────┼─────────────────────────────────────────┐
+│                  CKB Testnet                                    │
+│                       │                                         │
+│  ┌──────────┐  ┌──────┴──────┐  ┌───────────┐  ┌───────────┐  │
+│  │  Agent   │  │  Job Cell   │  │Reputation │  │Capability │  │
+│  │ Identity │  │(Open→Claimed│  │   Cell    │  │  NFT Cell │  │
+│  │  Cell    │  │ →Completed) │  │(Dispute   │  │(Attestation│  │
+│  │(Spending │  │             │  │ Window)   │  │  Proof)   │  │
+│  │  Cap)    │  │             │  │           │  │           │  │
+│  └──────────┘  └─────────────┘  └───────────┘  └───────────┘  │
+│                                                                 │
+│  ┌──────────┐                                                  │
+│  │ Mock AMM │  Constant-product pool for DeFi demo swaps       │
+│  └──────────┘                                                  │
+│                                                                 │
+└─────────────────────────────────────────────────────────────────┘
+                        │
+┌───────────────────────┼─────────────────────────────────────────┐
+│              Fiber Network                                      │
+│          Per-job payment channels                               │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Key Design Decisions
+
+**Agent identity IS a cell.** Each agent is a CKB cell with a type script that enforces per-transaction spending caps. If an agent tries to exceed its limit, the transaction is physically invalid at the consensus level — no application-layer jailbreak can bypass this.
+
+**Reputation as a state machine.** Reputation cells transition through Idle → Proposed (completed/abandoned) → Finalized, with a configurable dispute window measured in block heights. No single party can unilaterally change an agent's reputation.
+
+**Capability verification via attestation.** Agents self-sign `blake2b(lock_args || capability_hash)` and store the recoverable signature in the capability NFT cell. ZK proofs were evaluated but rejected — CKB-VM requires `no_std` RISC-V, and existing ZK libraries (`halo2`, `ckb-zkp`) depend on `std`.
+
+### On-Chain Contracts
+
+| Contract | Type Script | Purpose |
+|---|---|---|
+| `agent_identity` | `contracts/src/bin/agent_identity.rs` | Enforces per-tx spending caps at consensus level. |
+| `job_cell` | `contracts/src/bin/job_cell.rs` | State machine: Open → Reserved → Claimed → Completed/Expired. |
+| `reputation` | `contracts/src/bin/reputation.rs` | Dispute-windowed reputation tracking (propose → finalize). |
+| `capability_nft` | `contracts/src/bin/capability_nft.rs` | Verifiable capability claims with signed attestation proofs. |
+| `mock_amm` | `contracts/src/bin/mock_amm.rs` | Constant-product AMM for demo DeFi swaps (CKB ↔ TEST_TOKEN). |
+
+### Rust TX Builder (packages/core)
+
+The nerve-core API builds, signs, and broadcasts all transactions. Private keys never leave this process. Supported intents:
+
+| Intent | Description |
+|---|---|
+| `transfer` | Simple CKB transfer between addresses. |
+| `spawn_agent` | Create an agent identity cell with spending limits. |
+| `post_job` | Create a job cell with reward escrow and TTL. |
+| `reserve_job` | Transition job from Open → Reserved. |
+| `claim_job` | Transition job from Reserved → Claimed. |
+| `complete_job` | Destroy job cell, route reward to worker. |
+| `cancel_job` | Destroy expired job cell, return funds to poster. |
+| `create_pool` | Initialize mock AMM pool with seed liquidity. |
+| `swap` | CKB → TOKEN swap against the AMM pool. |
+| `mint_capability` | Mint a capability NFT with attestation proof. |
+| `create_reputation` | Initialize a reputation cell (Idle state). |
+| `propose_reputation` | Propose a reputation update (Idle → Proposed). |
+| `finalize_reputation` | Finalize after dispute window (Proposed → Finalized). |
 
 ## Quick Start
 
 ```bash
+# 1. Install dependencies
+#    - Rust (stable), Docker, CKB testnet access
+#    - Fund two testnet wallets from https://faucet.nervos.org
+
+# 2. Configure
 cp .env.example .env
-# Fill in ANTHROPIC_API_KEY and CKB testnet keys
+# Fill in CKB_RPC_URL, DEMO_POSTER_KEY, DEMO_WORKER_KEY
 
-docker compose up
+# 3. Deploy contracts
+./scripts/deploy_contracts.sh all
+source .env.deployed
+
+# 4. Run the demo
+./scripts/start_demo.sh --non-interactive
 ```
-
-## Demo
-
-```bash
-nerve demo
-```
-
-Runs all three demo flows against CKB testnet using pre-funded wallets. Requires only `ANTHROPIC_API_KEY`.
-
-## Architecture
-
-- `packages/core` — Rust TX Builder REST API (axum + ckb-sdk-rust)
-- `packages/mcp` — CKB chain HTTP bridge (TypeScript + CCC)
-- `packages/agent` — OpenClaw workspace (skills, heartbeat, Telegram interface)
-- `contracts/` — On-chain RISC-V scripts (identity, job, reputation, capability, mock AMM)
-
-### On-Chain Contracts
-
-| Contract | Purpose |
-|---|---|
-| `agent_identity` | Type script enforcing per-tx spending caps at consensus level. |
-| `job_cell` | State machine for the job marketplace (Open→Reserved→Claimed→Completed). |
-| `reputation` | Dispute-windowed reputation tracking (propose→finalize/dispute). |
-| `capability_nft` | Verifiable capability claims with attestation proofs. |
-| `mock_amm` | Constant-product AMM for demo DeFi swaps (CKB↔TEST_TOKEN). |
-
-### Capability Proof: Attestation vs ZK
-
-The `capability_nft` contract supports two proof modes via the `proof_type` byte:
-
-- **`proof_type=0` (Attestation)** — The agent signs `blake2b(lock_args || capability_hash)` with its private key. The signature is stored in the cell data. This is the current implementation.
-- **`proof_type=1` (ZK)** — Reserved for zero-knowledge proofs. Not implemented.
-
-**Why attestation instead of ZK?** CKB scripts compile to RISC-V (`riscv64imac-unknown-none-elf`, `no_std`). ZK proof libraries like `halo2` and `ckb-zkp` depend on `std` and floating-point operations that are unavailable in CKB-VM. Producing a ZK verifier that compiles to CKB's RISC-V target would require a custom implementation beyond the scope of this hackathon. The signed attestation approach is production-viable for trusted attestors and can be upgraded to ZK proofs when a CKB-compatible ZK library becomes available.
 
 ## CLI
 
 ```bash
-nerve balance                    # Check agent CKB balance.
-nerve jobs [--status Open]       # List job cells.
+# Agent operations
+nerve balance                    # Check CKB balance.
 nerve post --reward 5            # Post a job (5 CKB reward).
 nerve claim --job 0x...:0        # Reserve and claim a job.
-nerve swap --pool 0x...:0 --amount 10  # Swap CKB via mock AMM.
-nerve mint-capability --hash 0x...     # Mint a capability NFT.
-nerve demo                       # Run the full marketplace demo.
-nerve telegram                   # Run Telegram integration test.
+nerve complete --job 0x...:0 --worker 0x...
+nerve cancel --job 0x...:0
+
+# DeFi
+nerve create-pool --seed-ckb 100 --seed-tokens 1000
+nerve swap --pool 0x...:0 --amount 10 --slippage 100
+
+# Capabilities and reputation
+nerve mint-capability --hash 0x...
+nerve create-reputation
+nerve propose-rep --rep 0x...:0 --type 1 --window 10
+nerve finalize-rep --rep 0x...:0
+
+# Demo
+nerve demo [--non-interactive]   # Run all 3 flows end-to-end.
+nerve telegram                   # Test Telegram integration.
 ```
 
-## Setup
+## Project Structure
 
-See the `.env.example` file for all required environment variables. Deploy contracts with:
-
-```bash
-./scripts/deploy_contracts.sh all
-source .env.deployed
 ```
+nerve/
+├── packages/
+│   └── core/           # Rust TX Builder API (axum + ckb-sdk-rust)
+│       └── src/
+│           ├── tx_builder/   # Transaction construction per intent
+│           ├── ckb_client.rs # CKB RPC + indexer client
+│           └── state.rs      # Agent state and config
+├── contracts/
+│   └── src/bin/        # On-chain RISC-V type scripts
+├── scripts/
+│   ├── nerve           # CLI wrapper
+│   ├── deploy_contracts.sh
+│   ├── start_demo.sh
+│   ├── setup_testnet.sh
+│   └── test_integration.sh
+└── .env.example
+```
+
+## License
+
+MIT

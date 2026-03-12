@@ -19,6 +19,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 NON_INTERACTIVE="${1:-}"
+CLEAN_MODE="${2:-}"
+if [[ "$NON_INTERACTIVE" == "--clean" ]]; then
+	CLEAN_MODE="--clean"
+	NON_INTERACTIVE=""
+fi
+if [[ "$CLEAN_MODE" != "--clean" && "${2:-}" == "--clean" ]]; then
+	CLEAN_MODE="--clean"
+fi
 
 POSTER_PORT=8080
 WORKER_PORT=8090
@@ -39,6 +47,17 @@ step()    { echo; echo "── $* ──"; }
 ok()      { echo "   ✓ $*"; }
 pending() { echo "   … $*"; }
 fail()    { echo "   ✗ $*" >&2; exit 1; }
+
+# ── Start poster nerve-core ────────────────────────────────────────────────────
+
+# ── Clean mode: stop any running instances ────────────────────────────────────
+
+if [[ "$CLEAN_MODE" == "--clean" ]]; then
+	step "Clean mode: stopping running nerve-core instances"
+	pkill -f "nerve-core" 2>/dev/null || true
+	sleep 2
+	ok "Previous instances stopped"
+fi
 
 # ── Start poster nerve-core ────────────────────────────────────────────────────
 
