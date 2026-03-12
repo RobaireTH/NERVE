@@ -115,6 +115,7 @@ Clear the active plan from Memory.
 | balance / how much CKB | chain-scanner | get_balance |
 | tx status `<tx_hash>` | chain-scanner | get_tx_status |
 | swap `X CKB` for `Y` | defi-worker | swap |
+| create AMM pool | defi-worker | create_pool |
 | open channel / pay `<lock_args>` | payment-worker | open_channel |
 
 ## Intent Parameter Extraction
@@ -131,7 +132,14 @@ Required: `job_tx_hash` (0x-prefixed hex), `job_index` (number, usually 0).
 Required: `job_tx_hash`, `job_index`, `worker_lock_args` (0x-prefixed 20-byte hex).
 
 ### swap
-Required: `from_asset` (e.g. "CKB"), `to_asset`, `amount_ckb`.
+Required: `pool_tx_hash` (0x-prefixed hex), `pool_index` (number, usually 0), `amount_ckb` (number).
+Optional: `slippage_bps` (number, default 100 = 1%).
+
+Before executing a swap, read the pool outpoint from Memory key `nerve:amm_pool`. If not set, tell the user they need to create a pool first (use `create_pool` intent).
+
+### create_pool
+Required: `seed_ckb` (number), `seed_token_amount` (number).
+After success, store the pool outpoint in Memory key `nerve:amm_pool` as `"<tx_hash>:0"`.
 
 ## Before Each Action
 
