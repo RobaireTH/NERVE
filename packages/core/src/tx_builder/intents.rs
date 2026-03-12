@@ -10,6 +10,7 @@ use super::{
 		build_cancel_job, build_claim_job, build_complete_job, build_post_job,
 		build_reserve_job, parse_hash_32,
 	},
+	reputation::{build_create_reputation, build_finalize_reputation, build_propose_reputation},
 	swap::{build_create_pool, build_swap},
 	transfer::build_transfer,
 };
@@ -74,6 +75,22 @@ pub enum BuildRequest {
 	MintCapability {
 		/// blake2b-256 hash of the capability type (0x-prefixed hex).
 		capability_hash: String,
+	},
+	/// Create a new reputation cell for this agent.
+	CreateReputation,
+	/// Propose a reputation update (Idle → Proposed).
+	ProposeReputation {
+		rep_tx_hash: String,
+		rep_index: u32,
+		/// 1 = completed, 2 = abandoned.
+		propose_type: u8,
+		/// Dispute window in blocks (default: 100).
+		dispute_window_blocks: Option<u64>,
+	},
+	/// Finalize a proposed reputation update (Proposed → Finalized).
+	FinalizeReputation {
+		rep_tx_hash: String,
+		rep_index: u32,
 	},
 }
 
@@ -157,6 +174,34 @@ pub async fn build_and_sign(
 		BuildRequest::MintCapability { capability_hash } => {
 			let cap_hash = parse_hash_32(&capability_hash)?;
 			let (tx, tx_hash) = build_mint_capability(state, &cap_hash).await?;
+			Ok(BuildResult { tx_hash, tx })
+		}
+
+		BuildRequest::CreateReputation => {
+			let (tx, tx_hash) = build_create_reputation(state).await?;
+			Ok(BuildResult { tx_hash, tx })
+		}
+
+		BuildRequest::ProposeReputation {
+			rep_tx_hash,
+			rep_index,
+			propose_type,
+			dispute_window_blocks,
+		} => {
+			let (tx, tx_hash) = build_propose_reputation(
+				state,
+				&rep_tx_hash,
+				rep_index,
+				propose_type,
+				dispute_window_blocks.unwrap_or(100),
+			)
+			.await?;
+			Ok(BuildResult { tx_hash, tx })
+		}
+
+		BuildRequest::FinalizeReputation { rep_tx_hash, rep_index } => {
+			let (tx, tx_hash) =
+				build_finalize_reputation(state, &rep_tx_hash, rep_index).await?;
 			Ok(BuildResult { tx_hash, tx })
 		}
 	}
