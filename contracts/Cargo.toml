@@ -4,4 +4,4 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ckb-std = "0.16"
+ckb-std = { version = "0.16", features = ["type-id"] }

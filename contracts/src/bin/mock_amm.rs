@@ -101,9 +101,9 @@ fn validate_swap() -> Result<(), i8> {
 	}
 
 	// Constant-product check: new_x * new_y >= old_x * old_y.
-	// Use u128 multiplication — reserves are u128 so the product can overflow.
-	// For demo purposes we check with saturating multiplication which is safe
-	// as long as reserves stay under ~2^64 (they will for testnet demo amounts).
+	// u128 × u128 can overflow to u256; saturating_mul caps at u128::MAX.
+	// This is safe as long as each reserve stays below ~2^64 (18.4 × 10^18),
+	// which holds for any testnet demo. A production AMM would use u256 arithmetic.
 	let old_k = old_ckb.saturating_mul(old_token);
 	let new_k = new_ckb.saturating_mul(new_token);
 
