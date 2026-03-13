@@ -139,6 +139,10 @@ pub async fn build_mint_capability(
 	let mut inputs = Vec::new();
 	let mut input_capacity: u64 = 0;
 	for cell in &cells.objects {
+		// Skip typed cells to avoid consuming protocol cells (job, reputation, etc.).
+		if cell.output.type_script.is_some() {
+			continue;
+		}
 		let cap = parse_capacity_hex(&cell.output.capacity)?;
 		inputs.push(json!({ "previous_output": cell.out_point, "since": "0x0" }));
 		input_capacity += cap;
@@ -185,7 +189,7 @@ pub async fn build_mint_capability(
 		.as_str()
 		.ok_or_else(|| TxBuildError::Rpc("test_tx_pool_accept: missing tx_hash".into()))?
 		.to_owned();
-	let signature = sign_tx(&tx_hash, &state.private_key)?;
+	let signature = sign_tx(&tx_hash, &state.private_key, inputs.len())?;
 	let mut tx = tx;
 	inject_witness(&mut tx, &signature);
 

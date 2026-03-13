@@ -20,9 +20,9 @@ use super::signing::{inject_witness, placeholder_witness, sign_tx};
 const IDENTITY_DATA_SIZE: usize = 50;
 
 // Minimum capacity shannons for an identity cell:
-//   capacity(8) + lock(53) + type_script(33) + data(50) = 144 bytes
-// Add a 56-byte buffer to round up to 200 CKB for safety.
-const IDENTITY_CELL_CAPACITY: u64 = 200 * 100_000_000;
+//   capacity(8) + lock(53) + type_script(33 + 32 args) + data(50) = 176 bytes
+// Add buffer to round up to 232 CKB for safety.
+const IDENTITY_CELL_CAPACITY: u64 = 232 * 100_000_000;
 
 // Estimated fee for the spawn transaction (shannons).
 const ESTIMATED_FEE: u64 = 1_000_000;
@@ -50,6 +50,42 @@ pub fn blake2b_256(data: &[u8]) -> [u8; 32] {
 	let mut out = [0u8; 32];
 	hasher.finalize(&mut out);
 	out
+}
+
+/// Calculates the CKB Type ID from the first input's CellInput molecule encoding
+/// and the output index of the type-id-bearing cell.
+///
+/// type_id = blake2b(since(8) || prev_tx_hash(32) || prev_index(4) || output_index(8))
+///
+/// The `since`, `prev_tx_hash`, and `prev_index` come from inputs[0].
+/// The `output_index` is where the type-id cell appears in the transaction outputs.
+pub fn calculate_type_id(
+	first_input_tx_hash: &str,
+	first_input_index: u32,
+	first_input_since: u64,
+	output_index: u64,
+) -> Result<String, TxBuildError> {
+	let tx_hash_bytes = hex::decode(first_input_tx_hash.trim_start_matches("0x"))
+		.map_err(|e| TxBuildError::Rpc(format!("bad tx_hash in type_id calc: {e}")))?;
+	if tx_hash_bytes.len() != 32 {
+		return Err(TxBuildError::Rpc("type_id: tx_hash must be 32 bytes".into()));
+	}
+
+	// Reconstruct CellInput molecule bytes: since(8) + tx_hash(32) + index(4).
+	let mut cell_input = Vec::with_capacity(44);
+	cell_input.extend_from_slice(&first_input_since.to_le_bytes());
+	cell_input.extend_from_slice(&tx_hash_bytes);
+	cell_input.extend_from_slice(&first_input_index.to_le_bytes());
+
+	let mut hasher = Blake2bBuilder::new(32)
+		.personal(b"ckb-default-hash")
+		.build();
+	hasher.update(&cell_input);
+	hasher.update(&output_index.to_le_bytes());
+
+	let mut type_id = [0u8; 32];
+	hasher.finalize(&mut type_id);
+	Ok(format!("0x{}", hex::encode(type_id)))
 }
 
 /// Builds, signs, and returns a spawn-agent transaction.
@@ -86,8 +122,23 @@ pub async fn build_spawn_agent(
 
 	let mut inputs = Vec::new();
 	let mut input_capacity: u64 = 0;
+	// Track the first input's outpoint for Type ID calculation.
+	let mut first_input_tx_hash: Option<String> = None;
+	let mut first_input_index: u32 = 0;
 	for cell in &cells.objects {
+		// Skip typed cells to avoid consuming protocol cells (job, reputation, etc.).
+		if cell.output.type_script.is_some() {
+			continue;
+		}
 		let cap = parse_capacity_hex(&cell.output.capacity)?;
+		if first_input_tx_hash.is_none() {
+			first_input_tx_hash = Some(cell.out_point.tx_hash.clone());
+			first_input_index = u32::from_str_radix(
+				cell.out_point.index.trim_start_matches("0x"),
+				16,
+			)
+			.unwrap_or(0);
+		}
 		inputs.push(json!({
 			"previous_output": cell.out_point,
 			"since": "0x0",
@@ -104,6 +155,13 @@ pub async fn build_spawn_agent(
 			have: input_capacity as f64 / 1e8,
 		});
 	}
+
+	let first_tx_hash = first_input_tx_hash
+		.ok_or_else(|| TxBuildError::Rpc("no input cells available for type_id".into()))?;
+
+	// Calculate Type ID: blake2b(cell_input_molecule || output_index).
+	// The identity cell is at output index 0.
+	let type_id_args = calculate_type_id(&first_tx_hash, first_input_index, 0, 0)?;
 
 	let change_capacity = input_capacity - IDENTITY_CELL_CAPACITY - ESTIMATED_FEE;
 
@@ -129,12 +187,10 @@ pub async fn build_spawn_agent(
 	let mut tx = json!({
 		"version": "0x0",
 		"cell_deps": [
-			// secp256k1-blake2b lock dep.
 			{
 				"out_point": { "tx_hash": SECP256K1_DEP_TX_HASH, "index": "0x0" },
 				"dep_type": "dep_group",
 			},
-			// Agent identity type script dep.
 			{
 				"out_point": { "tx_hash": dep_tx_hash, "index": "0x0" },
 				"dep_type": "code",
@@ -143,17 +199,15 @@ pub async fn build_spawn_agent(
 		"header_deps": [],
 		"inputs": inputs,
 		"outputs": [
-			// Identity cell output.
 			{
 				"capacity": format!("{:#x}", IDENTITY_CELL_CAPACITY),
 				"lock": our_lock,
 				"type": {
 					"code_hash": type_code_hash,
 					"hash_type": "data1",
-					"args": "0x",
+					"args": type_id_args,
 				},
 			},
-			// Change output.
 			{
 				"capacity": format!("{:#x}", change_capacity),
 				"lock": our_lock,
@@ -173,7 +227,7 @@ pub async fn build_spawn_agent(
 		.ok_or_else(|| TxBuildError::Rpc("test_tx_pool_accept: missing tx_hash".into()))?
 		.to_owned();
 
-	let signature = sign_tx(&tx_hash, &state.private_key)?;
+	let signature = sign_tx(&tx_hash, &state.private_key, inputs.len())?;
 	inject_witness(&mut tx, &signature);
 
 	Ok((tx, tx_hash))
@@ -209,6 +263,10 @@ pub async fn build_deploy_binary(
 	let mut inputs = Vec::new();
 	let mut input_capacity: u64 = 0;
 	for cell in &cells.objects {
+		// Skip typed cells to avoid consuming protocol cells (job, reputation, etc.).
+		if cell.output.type_script.is_some() {
+			continue;
+		}
 		let cap = parse_capacity_hex(&cell.output.capacity)?;
 		inputs.push(json!({ "previous_output": cell.out_point, "since": "0x0" }));
 		input_capacity += cap;
@@ -276,8 +334,82 @@ pub async fn build_deploy_binary(
 		.ok_or_else(|| TxBuildError::Rpc("test_tx_pool_accept: missing tx_hash".into()))?
 		.to_owned();
 
-	let signature = sign_tx(&tx_hash, &state.private_key)?;
+	let signature = sign_tx(&tx_hash, &state.private_key, inputs.len())?;
 	inject_witness(&mut tx, &signature);
 
 	Ok((tx, tx_hash, code_hash))
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn encode_identity_data_layout() {
+		let pubkey = [0xAA; 33];
+		let data = encode_identity_data(&pubkey, 100_000_000, 500_000_000);
+		assert_eq!(data.len(), IDENTITY_DATA_SIZE);
+		assert_eq!(data[0], 0, "version must be 0");
+		assert_eq!(&data[1..34], &pubkey);
+		let spending = u64::from_le_bytes(data[34..42].try_into().unwrap());
+		assert_eq!(spending, 100_000_000);
+		let daily = u64::from_le_bytes(data[42..50].try_into().unwrap());
+		assert_eq!(daily, 500_000_000);
+	}
+
+	#[test]
+	fn blake2b_256_ckb_personalization() {
+		// Known CKB hash: blake2b("ckb-default-hash", []) should produce the standard empty hash.
+		let hash = blake2b_256(&[]);
+		// The hash should be deterministic and 32 bytes.
+		assert_eq!(hash.len(), 32);
+		// Verify it's not all zeros (the hash of empty with CKB personalization is non-trivial).
+		assert!(!hash.iter().all(|&b| b == 0));
+	}
+
+	#[test]
+	fn blake2b_256_deterministic() {
+		let data = b"test data";
+		let h1 = blake2b_256(data);
+		let h2 = blake2b_256(data);
+		assert_eq!(h1, h2, "same input must produce same hash");
+	}
+
+	#[test]
+	fn calculate_type_id_basic() {
+		let tx_hash = "0x".to_owned() + &"ab".repeat(32);
+		let type_id = calculate_type_id(&tx_hash, 0, 0, 0).unwrap();
+		assert!(type_id.starts_with("0x"));
+		assert_eq!(type_id.len(), 66, "type_id should be 0x + 64 hex chars");
+	}
+
+	#[test]
+	fn calculate_type_id_deterministic() {
+		let tx_hash = "0x".to_owned() + &"ff".repeat(32);
+		let id1 = calculate_type_id(&tx_hash, 0, 0, 0).unwrap();
+		let id2 = calculate_type_id(&tx_hash, 0, 0, 0).unwrap();
+		assert_eq!(id1, id2);
+	}
+
+	#[test]
+	fn calculate_type_id_changes_with_index() {
+		let tx_hash = "0x".to_owned() + &"ab".repeat(32);
+		let id_0 = calculate_type_id(&tx_hash, 0, 0, 0).unwrap();
+		let id_1 = calculate_type_id(&tx_hash, 1, 0, 0).unwrap();
+		assert_ne!(id_0, id_1, "different input index must produce different type_id");
+	}
+
+	#[test]
+	fn calculate_type_id_changes_with_output_index() {
+		let tx_hash = "0x".to_owned() + &"ab".repeat(32);
+		let id_0 = calculate_type_id(&tx_hash, 0, 0, 0).unwrap();
+		let id_1 = calculate_type_id(&tx_hash, 0, 0, 1).unwrap();
+		assert_ne!(id_0, id_1, "different output index must produce different type_id");
+	}
+
+	#[test]
+	fn calculate_type_id_rejects_bad_hash() {
+		let result = calculate_type_id("0xdeadbeef", 0, 0, 0);
+		assert!(result.is_err(), "short tx_hash should be rejected");
+	}
 }

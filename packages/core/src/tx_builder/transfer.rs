@@ -45,6 +45,10 @@ pub async fn build_transfer(
 	let mut inputs = Vec::new();
 	let mut input_capacity: u64 = 0;
 	for cell in &cells.objects {
+		// Skip typed cells to avoid consuming protocol cells (job, reputation, etc.).
+		if cell.output.type_script.is_some() {
+			continue;
+		}
 		let cap = parse_capacity_hex(&cell.output.capacity)?;
 		inputs.push(json!({
 			"previous_output": cell.out_point,
@@ -121,7 +125,7 @@ pub async fn build_transfer(
 		.to_owned();
 
 	// Sign and inject the witness.
-	let signature = sign_tx(&tx_hash, &state.private_key)?;
+	let signature = sign_tx(&tx_hash, &state.private_key, inputs.len())?;
 	inject_witness(&mut tx, &signature);
 
 	Ok((tx, tx_hash))

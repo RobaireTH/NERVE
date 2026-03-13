@@ -174,12 +174,16 @@ async fn sign_and_finalize(
 	state: &AppState,
 	mut tx: Value,
 ) -> Result<(Value, String), TxBuildError> {
+	let witness_count = tx["witnesses"]
+		.as_array()
+		.map(|a| a.len())
+		.unwrap_or(1);
 	let accepted = state.ckb.test_tx_pool_accept(&tx).await?;
 	let tx_hash = accepted["tx_hash"]
 		.as_str()
 		.ok_or_else(|| TxBuildError::Rpc("test_tx_pool_accept: missing tx_hash".into()))?
 		.to_owned();
-	let signature = sign_tx(&tx_hash, &state.private_key)?;
+	let signature = sign_tx(&tx_hash, &state.private_key, witness_count)?;
 	inject_witness(&mut tx, &signature);
 	Ok((tx, tx_hash))
 }
@@ -447,4 +451,53 @@ pub async fn build_cancel_job(
 	});
 
 	sign_and_finalize(state, tx).await
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn encode_job_data_layout() {
+		let poster = [0xAA; 20];
+		let worker = [0x00; 20];
+		let cap_hash = [0xCC; 32];
+		let data = encode_job_data(&poster, &worker, 500_000_000, 1000, &cap_hash);
+		assert_eq!(data.len(), 90);
+		assert_eq!(data[0], 0, "version");
+		assert_eq!(data[1], STATUS_OPEN, "status");
+		assert_eq!(&data[2..22], &poster);
+		assert_eq!(&data[22..42], &worker);
+		let reward = u64::from_le_bytes(data[42..50].try_into().unwrap());
+		assert_eq!(reward, 500_000_000);
+		let ttl = u64::from_le_bytes(data[50..58].try_into().unwrap());
+		assert_eq!(ttl, 1000);
+		assert_eq!(&data[58..90], &cap_hash);
+	}
+
+	#[test]
+	fn parse_lock_args_20_valid() {
+		let hex = "0x".to_owned() + &"ab".repeat(20);
+		let result = parse_lock_args_20(&hex).unwrap();
+		assert_eq!(result, [0xAB; 20]);
+	}
+
+	#[test]
+	fn parse_lock_args_20_wrong_length() {
+		let short = "0xaabb";
+		assert!(parse_lock_args_20(short).is_err());
+	}
+
+	#[test]
+	fn parse_hash_32_valid() {
+		let hex = "0x".to_owned() + &"ff".repeat(32);
+		let result = parse_hash_32(&hex).unwrap();
+		assert_eq!(result, [0xFF; 32]);
+	}
+
+	#[test]
+	fn parse_hash_32_wrong_length() {
+		let short = "0x".to_owned() + &"ff".repeat(16);
+		assert!(parse_hash_32(&short).is_err());
+	}
 }

@@ -152,13 +152,17 @@ pub async fn build_swap(
 	let new_pool_capacity = pool_capacity + amount_ckb_shannons;
 
 	// Gather agent cells for the CKB being swapped + fee.
-	let needed = amount_ckb_shannons as u64 + ESTIMATED_FEE + MIN_CELL_CAPACITY;
+	let needed = amount_ckb_shannons + ESTIMATED_FEE + MIN_CELL_CAPACITY;
 	let agent_lock = our_lock(state);
 	let cells = state.ckb.get_cells_by_lock(&agent_lock, 200).await?;
 
 	let mut fee_inputs = Vec::new();
 	let mut fee_capacity: u64 = 0;
 	for cell in &cells.objects {
+		// Skip typed cells to avoid consuming protocol cells (job, reputation, etc.).
+		if cell.output.type_script.is_some() {
+			continue;
+		}
 		let cap = parse_capacity_hex(&cell.output.capacity)?;
 		fee_inputs.push(json!({ "previous_output": cell.out_point, "since": "0x0" }));
 		fee_capacity += cap;
@@ -214,7 +218,7 @@ pub async fn build_swap(
 		.as_str()
 		.ok_or_else(|| TxBuildError::Rpc("test_tx_pool_accept: missing tx_hash".into()))?
 		.to_owned();
-	let signature = sign_tx(&tx_hash, &state.private_key)?;
+	let signature = sign_tx(&tx_hash, &state.private_key, all_inputs.len())?;
 	let mut tx = tx;
 	inject_witness(&mut tx, &signature);
 
@@ -240,6 +244,10 @@ pub async fn build_create_pool(
 	let mut inputs = Vec::new();
 	let mut input_capacity: u64 = 0;
 	for cell in &cells.objects {
+		// Skip typed cells to avoid consuming protocol cells (job, reputation, etc.).
+		if cell.output.type_script.is_some() {
+			continue;
+		}
 		let cap = parse_capacity_hex(&cell.output.capacity)?;
 		inputs.push(json!({ "previous_output": cell.out_point, "since": "0x0" }));
 		input_capacity += cap;
@@ -286,7 +294,7 @@ pub async fn build_create_pool(
 		.as_str()
 		.ok_or_else(|| TxBuildError::Rpc("test_tx_pool_accept: missing tx_hash".into()))?
 		.to_owned();
-	let signature = sign_tx(&tx_hash, &state.private_key)?;
+	let signature = sign_tx(&tx_hash, &state.private_key, inputs.len())?;
 	let mut tx = tx;
 	inject_witness(&mut tx, &signature);
 
