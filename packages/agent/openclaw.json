@@ -21,7 +21,8 @@
 			"./skills/marketplace-worker",
 			"./skills/payment-worker",
 			"./skills/defi-worker",
-			"./skills/chain-scanner"
+			"./skills/chain-scanner",
+			"./skills/autonomous-worker"
 		]
 	},
 	"crons": {
@@ -29,6 +30,11 @@
 			"schedule": "*/10 * * * *",
 			"agent": "nerve",
 			"task": "Run heartbeat job scan"
+		},
+		"auto-worker": {
+			"schedule": "*/5 * * * *",
+			"agent": "nerve",
+			"task": "Run autonomous worker loop using the autonomous-worker skill"
 		}
 	}
 }
