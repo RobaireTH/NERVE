@@ -82,22 +82,43 @@ router.get('/', async (req, res) => {
 
 		res.json({ jobs, count: jobs.length });
 	} catch (e) {
-		res.status(502).json({ error: String(e) });
+		console.error('jobs route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
 	}
 });
 
 // POST /jobs — post a new job (proxies to nerve-core TX builder).
+// Body: { reward_ckb: number, ttl_blocks: number, capability_hash: string }
 router.post('/', async (req, res) => {
+	const { reward_ckb, ttl_blocks, capability_hash } = req.body as {
+		reward_ckb?: number;
+		ttl_blocks?: number;
+		capability_hash?: string;
+	};
+
+	if (reward_ckb === undefined || typeof reward_ckb !== 'number' || reward_ckb <= 0) {
+		res.status(400).json({ error: 'reward_ckb must be a positive number' });
+		return;
+	}
+	if (ttl_blocks === undefined || typeof ttl_blocks !== 'number' || ttl_blocks <= 0) {
+		res.status(400).json({ error: 'ttl_blocks must be a positive number' });
+		return;
+	}
+	if (!capability_hash || typeof capability_hash !== 'string' || !/^0x[0-9a-fA-F]{64}$/.test(capability_hash)) {
+		res.status(400).json({ error: 'capability_hash must be a 0x-prefixed 32-byte hex string' });
+		return;
+	}
+
 	try {
 		const response = await fetch(`${CORE_URL}/tx/build-and-broadcast`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ intent: 'post_job', ...req.body }),
+			body: JSON.stringify({ intent: 'post_job', reward_ckb, ttl_blocks, capability_hash }),
 		});
 		const data = await response.json();
 		res.status(response.status).json(data);
 	} catch (e) {
-		res.status(502).json({ error: String(e) });
+		res.status(502).json({ error: 'failed to reach nerve-core' });
 	}
 });
 
@@ -123,7 +144,8 @@ router.get('/:tx_hash/:index', async (req, res) => {
 		}
 		res.json(job);
 	} catch (e) {
-		res.status(502).json({ error: String(e) });
+		console.error('jobs route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
 	}
 });
 

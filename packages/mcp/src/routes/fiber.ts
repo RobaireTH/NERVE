@@ -18,7 +18,8 @@ router.get('/node', async (_req, res) => {
 		const info = await nodeInfo();
 		res.json(info);
 	} catch (e) {
-		res.status(502).json({ error: String(e) });
+		console.error('fiber route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
 	}
 });
 
@@ -34,7 +35,8 @@ router.post('/peers', async (req, res) => {
 		await connectPeer(peer_address);
 		res.json({ ok: true, peer_address });
 	} catch (e) {
-		res.status(502).json({ error: String(e) });
+		console.error('fiber route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
 	}
 });
 
@@ -51,7 +53,8 @@ router.get('/channels', async (req, res) => {
 		}));
 		res.json({ channels, count: channels.length });
 	} catch (e) {
-		res.status(502).json({ error: String(e) });
+		console.error('fiber route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
 	}
 });
 
@@ -76,7 +79,8 @@ router.post('/channels', async (req, res) => {
 			funding_ckb,
 		});
 	} catch (e) {
-		res.status(502).json({ error: String(e) });
+		console.error('fiber route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
 	}
 });
 
@@ -89,7 +93,8 @@ router.delete('/channels/:channel_id', async (req, res) => {
 		await shutdownChannel(channel_id, force);
 		res.json({ ok: true, channel_id, force });
 	} catch (e) {
-		res.status(502).json({ error: String(e) });
+		console.error('fiber route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
 	}
 });
 
@@ -113,7 +118,8 @@ router.post('/invoice', async (req, res) => {
 			payment_hash: invoice.invoice.data.payment_hash,
 		});
 	} catch (e) {
-		res.status(502).json({ error: String(e) });
+		console.error('fiber route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
 	}
 });
 
@@ -147,7 +153,8 @@ router.post('/pay', async (req, res) => {
 			fee_shannons: result.fee,
 		});
 	} catch (e) {
-		res.status(502).json({ error: String(e) });
+		console.error('fiber route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
 	}
 });
 

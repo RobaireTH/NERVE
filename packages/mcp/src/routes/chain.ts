@@ -9,7 +9,8 @@ router.get('/height', async (_req, res) => {
 		const height = await getTipBlockNumber();
 		res.json({ block_number: height.toString() });
 	} catch (e) {
-		res.status(502).json({ error: String(e) });
+		console.error('chain route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
 	}
 });
 
@@ -29,7 +30,8 @@ router.get('/cells', async (req, res) => {
 		const result = await getCellsByScript(script, script_type as 'lock' | 'type');
 		res.json(result);
 	} catch (e) {
-		res.status(502).json({ error: String(e) });
+		console.error('chain route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
 	}
 });
 
@@ -44,7 +46,8 @@ router.get('/balance/:lock_args', async (req, res) => {
 			balance_ckb: Number(shannons) / 1e8,
 		});
 	} catch (e) {
-		res.status(502).json({ error: String(e) });
+		console.error('chain route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
 	}
 });
 

@@ -101,7 +101,8 @@ router.get('/:lock_args', async (req, res) => {
 		}
 		res.json({ agent, out_point: match.out_point });
 	} catch (e) {
-		res.status(502).json({ error: String(e) });
+		console.error('agents route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
 	}
 });
 
@@ -133,7 +134,8 @@ router.get('/:lock_args/reputation', async (req, res) => {
 		const rep = parseReputationCell(match.output_data);
 		res.json({ reputation: rep, out_point: match.out_point });
 	} catch (e) {
-		res.status(502).json({ error: String(e) });
+		console.error('agents route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
 	}
 });
 
