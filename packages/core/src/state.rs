@@ -85,3 +85,48 @@ pub fn shannons_to_ckb(shannons: u64) -> f64 {
 pub fn parse_capacity_hex(hex_str: &str) -> Result<u64, TxBuildError> {
 	crate::ckb_client::parse_hex_u64(hex_str)
 }
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn ckb_to_shannons_basic() {
+		assert_eq!(ckb_to_shannons(1.0), 100_000_000);
+		assert_eq!(ckb_to_shannons(100.0), 10_000_000_000);
+		assert_eq!(ckb_to_shannons(0.01), 1_000_000);
+	}
+
+	#[test]
+	fn shannons_to_ckb_basic() {
+		assert!((shannons_to_ckb(100_000_000) - 1.0).abs() < f64::EPSILON);
+		assert!((shannons_to_ckb(10_000_000_000) - 100.0).abs() < f64::EPSILON);
+	}
+
+	#[test]
+	fn parse_capacity_hex_values() {
+		assert_eq!(parse_capacity_hex("0x174876e800").unwrap(), 100_000_000_000);
+		assert_eq!(parse_capacity_hex("0x0").unwrap(), 0);
+		assert_eq!(parse_capacity_hex("0xff").unwrap(), 255);
+	}
+
+	#[test]
+	fn derive_lock_args_deterministic() {
+		let privkey = hex::decode(
+			"e79f3207ea4980b7fed79956d5934249ceac4751a4fae01a0f7c4a96884bc4e3",
+		)
+		.unwrap();
+		let args1 = derive_lock_args(&privkey).unwrap();
+		let args2 = derive_lock_args(&privkey).unwrap();
+		assert_eq!(args1, args2);
+		assert!(args1.starts_with("0x"));
+		// blake160 = 20 bytes = 40 hex chars + "0x" prefix.
+		assert_eq!(args1.len(), 42);
+	}
+
+	#[test]
+	fn derive_lock_args_rejects_bad_key() {
+		let bad_key = vec![0u8; 10];
+		assert!(derive_lock_args(&bad_key).is_err());
+	}
+}
