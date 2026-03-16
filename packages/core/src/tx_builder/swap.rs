@@ -9,6 +9,7 @@ use crate::{
 	},
 };
 
+use super::molecule::compute_raw_tx_hash;
 use super::signing::{inject_witness, placeholder_witness, sign_tx};
 
 const ESTIMATED_FEE: u64 = 2_000_000;
@@ -213,11 +214,7 @@ pub async fn build_swap(
 	});
 
 	// Sign.
-	let accepted = state.ckb.test_tx_pool_accept(&tx).await?;
-	let tx_hash = accepted["tx_hash"]
-		.as_str()
-		.ok_or_else(|| TxBuildError::Rpc("test_tx_pool_accept: missing tx_hash".into()))?
-		.to_owned();
+	let tx_hash = compute_raw_tx_hash(&tx)?;
 	let signature = sign_tx(&tx_hash, &state.private_key, all_inputs.len())?;
 	let mut tx = tx;
 	inject_witness(&mut tx, &signature);
@@ -289,11 +286,7 @@ pub async fn build_create_pool(
 		"witnesses": witnesses,
 	});
 
-	let accepted = state.ckb.test_tx_pool_accept(&tx).await?;
-	let tx_hash = accepted["tx_hash"]
-		.as_str()
-		.ok_or_else(|| TxBuildError::Rpc("test_tx_pool_accept: missing tx_hash".into()))?
-		.to_owned();
+	let tx_hash = compute_raw_tx_hash(&tx)?;
 	let signature = sign_tx(&tx_hash, &state.private_key, inputs.len())?;
 	let mut tx = tx;
 	inject_witness(&mut tx, &signature);

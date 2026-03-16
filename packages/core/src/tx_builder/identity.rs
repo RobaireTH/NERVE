@@ -10,6 +10,7 @@ use crate::{
 	},
 };
 
+use super::molecule::compute_raw_tx_hash;
 use super::signing::{inject_witness, placeholder_witness, sign_tx};
 
 // Agent identity cell data layout (50 bytes):
@@ -221,11 +222,7 @@ pub async fn build_spawn_agent(
 		"witnesses": witnesses,
 	});
 
-	let accepted = state.ckb.test_tx_pool_accept(&tx).await?;
-	let tx_hash = accepted["tx_hash"]
-		.as_str()
-		.ok_or_else(|| TxBuildError::Rpc("test_tx_pool_accept: missing tx_hash".into()))?
-		.to_owned();
+	let tx_hash = compute_raw_tx_hash(&tx)?;
 
 	let signature = sign_tx(&tx_hash, &state.private_key, inputs.len())?;
 	inject_witness(&mut tx, &signature);
@@ -328,11 +325,7 @@ pub async fn build_deploy_binary(
 		"witnesses": witnesses,
 	});
 
-	let accepted = state.ckb.test_tx_pool_accept(&tx).await?;
-	let tx_hash = accepted["tx_hash"]
-		.as_str()
-		.ok_or_else(|| TxBuildError::Rpc("test_tx_pool_accept: missing tx_hash".into()))?
-		.to_owned();
+	let tx_hash = compute_raw_tx_hash(&tx)?;
 
 	let signature = sign_tx(&tx_hash, &state.private_key, inputs.len())?;
 	inject_witness(&mut tx, &signature);

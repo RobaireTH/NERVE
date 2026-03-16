@@ -9,6 +9,7 @@ use crate::{
 	},
 };
 
+use super::molecule::compute_raw_tx_hash;
 use super::signing::{inject_witness, placeholder_witness, sign_tx};
 
 // Job status bytes.
@@ -22,6 +23,9 @@ pub const JOB_CELL_OVERHEAD: u64 = 184 * 100_000_000;
 
 // Minimum capacity for a plain secp256k1 payment cell (no type, no data).
 pub const MIN_PAYMENT_CELL: u64 = 61 * 100_000_000;
+
+// Minimum capacity for a result memo cell: cap(8) + lock(53) + data(33) = 94 → round to 97 CKB.
+pub const RESULT_MEMO_CAPACITY: u64 = 97 * 100_000_000;
 
 const ESTIMATED_FEE: u64 = 2_000_000;
 
@@ -55,6 +59,14 @@ pub fn encode_job_data(
 	data.extend_from_slice(&reward_shannons.to_le_bytes());
 	data.extend_from_slice(&ttl_block_height.to_le_bytes());
 	data.extend_from_slice(capability_hash);
+	data
+}
+
+/// Encodes a 33-byte result memo cell data: version(1) + result_hash(32).
+pub fn encode_result_memo(result_hash: &[u8; 32]) -> Vec<u8> {
+	let mut data = Vec::with_capacity(33);
+	data.push(0u8); // version
+	data.extend_from_slice(result_hash);
 	data
 }
 
@@ -178,11 +190,7 @@ async fn sign_and_finalize(
 		.as_array()
 		.map(|a| a.len())
 		.unwrap_or(1);
-	let accepted = state.ckb.test_tx_pool_accept(&tx).await?;
-	let tx_hash = accepted["tx_hash"]
-		.as_str()
-		.ok_or_else(|| TxBuildError::Rpc("test_tx_pool_accept: missing tx_hash".into()))?
-		.to_owned();
+	let tx_hash = compute_raw_tx_hash(&tx)?;
 	let signature = sign_tx(&tx_hash, &state.private_key, witness_count)?;
 	inject_witness(&mut tx, &signature);
 	Ok((tx, tx_hash))
@@ -352,11 +360,16 @@ pub async fn build_claim_job(
 }
 
 /// complete_job — destroys the job cell, routes reward to worker and overhead back to poster.
+///
+/// When `result_hash` is provided, an additional result memo cell (33 bytes of data) is created
+/// under the worker's lock as on-chain proof of work. The memo capacity is deducted from the
+/// poster's refund.
 pub async fn build_complete_job(
 	state: &AppState,
 	job_tx_hash: &str,
 	job_index: u32,
 	worker_lock_args: &str,
+	result_hash: Option<[u8; 32]>,
 ) -> Result<(Value, String), TxBuildError> {
 	let (_, dep_tx_hash) = job_type_env()?;
 	let (job_capacity, job_data) = fetch_job_cell(state, job_tx_hash, job_index).await?;
@@ -387,10 +400,35 @@ pub async fn build_complete_job(
 	};
 
 	// Fee comes from the overhead reduction (poster_refund > 61 CKB; fee is ~0.01 CKB).
-	let poster_refund_after_fee = poster_refund - ESTIMATED_FEE;
+	let memo_cost = if result_hash.is_some() { RESULT_MEMO_CAPACITY } else { 0 };
+	let poster_refund_after_fee = poster_refund - ESTIMATED_FEE - memo_cost;
 
 	let inputs = vec![json!({ "previous_output": { "tx_hash": job_tx_hash, "index": format!("{:#x}", job_index) }, "since": "0x0" })];
 	let witnesses = placeholder_witnesses(inputs.len());
+
+	let mut outputs = vec![
+		// Reward to worker.
+		json!({ "capacity": format!("{:#x}", reward_shannons), "lock": worker_lock, "type": null }),
+		// Overhead refund to poster.
+		json!({ "capacity": format!("{:#x}", poster_refund_after_fee), "lock": our_lock(state), "type": null }),
+	];
+	let mut outputs_data = vec!["0x".to_string(), "0x".to_string()];
+
+	// Optional result memo cell under the worker's lock.
+	if let Some(hash) = result_hash {
+		let memo_data = encode_result_memo(&hash);
+		let memo_lock = Script {
+			code_hash: SECP256K1_CODE_HASH.into(),
+			hash_type: SECP256K1_HASH_TYPE.into(),
+			args: worker_lock_args.into(),
+		};
+		outputs.push(json!({
+			"capacity": format!("{:#x}", RESULT_MEMO_CAPACITY),
+			"lock": memo_lock,
+			"type": null,
+		}));
+		outputs_data.push(format!("0x{}", hex::encode(&memo_data)));
+	}
 
 	let tx = json!({
 		"version": "0x0",
@@ -400,13 +438,8 @@ pub async fn build_complete_job(
 		],
 		"header_deps": [],
 		"inputs": inputs,
-		"outputs": [
-			// Reward to worker.
-			{ "capacity": format!("{:#x}", reward_shannons), "lock": worker_lock, "type": null },
-			// Overhead refund to poster.
-			{ "capacity": format!("{:#x}", poster_refund_after_fee), "lock": our_lock(state), "type": null },
-		],
-		"outputs_data": ["0x", "0x"],
+		"outputs": outputs,
+		"outputs_data": outputs_data,
 		"witnesses": witnesses,
 	});
 
@@ -499,5 +532,14 @@ mod tests {
 	fn parse_hash_32_wrong_length() {
 		let short = "0x".to_owned() + &"ff".repeat(16);
 		assert!(parse_hash_32(&short).is_err());
+	}
+
+	#[test]
+	fn encode_result_memo_layout() {
+		let hash = [0xDD; 32];
+		let data = encode_result_memo(&hash);
+		assert_eq!(data.len(), 33);
+		assert_eq!(data[0], 0, "version");
+		assert_eq!(&data[1..33], &hash);
 	}
 }

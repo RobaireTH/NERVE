@@ -5,14 +5,16 @@ use secp256k1::{PublicKey, Secp256k1, SecretKey};
 
 use crate::{ckb_client::CkbClient, errors::TxBuildError};
 
-// Well-known secp256k1-blake2b lock script constants (same on mainnet and testnet).
+// Well-known secp256k1-blake2b lock script constants (code_hash is the same on mainnet and testnet).
 pub const SECP256K1_CODE_HASH: &str =
 	"0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8";
 pub const SECP256K1_HASH_TYPE: &str = "type";
 
 // The dep_group cell that bundles the secp256k1-blake2b lock script binary.
+// Testnet (Pudge): 0xf8de3bb47d055cdf460d93a2a6e1b05f7432f9777c8c474abf4eec1d4aee5d37
+// Mainnet (Mirana): 0x71a7ba8fc96349fea0ed3a5c47992e3b4084b031a42264a018e0072e8172e46c
 pub const SECP256K1_DEP_TX_HASH: &str =
-	"0x71a7ba8fc96349fea0ed3a5c47992e3b4084b031a42264a018e0072e8172e46c";
+	"0xf8de3bb47d055cdf460d93a2a6e1b05f7432f9777c8c474abf4eec1d4aee5d37";
 
 #[derive(Clone)]
 pub struct AppState {
@@ -38,7 +40,7 @@ impl AppState {
 		let private_key = hex::decode(private_key_hex.trim_start_matches("0x"))
 			.map_err(|e| TxBuildError::Signing(format!("bad AGENT_PRIVATE_KEY hex: {e}")))?;
 
-		let spending_limit_shannons: u64 = std::env::var("SPENDING_LIMIT_CKB")
+		let spending_limit_shannons: u64 = std::env::var("PER_TX_LIMIT_CKB")
 			.ok()
 			.and_then(|v| v.parse::<f64>().ok())
 			.map(ckb_to_shannons)

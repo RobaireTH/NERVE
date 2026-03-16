@@ -11,6 +11,7 @@ use crate::{
 
 use super::{
 	identity::calculate_type_id,
+	molecule::compute_raw_tx_hash,
 	signing::{inject_witness, placeholder_witness, sign_tx},
 };
 
@@ -204,11 +205,7 @@ pub async fn build_create_reputation(
 		"witnesses": witnesses,
 	});
 
-	let accepted = state.ckb.test_tx_pool_accept(&tx).await?;
-	let tx_hash_str = accepted["tx_hash"]
-		.as_str()
-		.ok_or_else(|| TxBuildError::Rpc("test_tx_pool_accept: missing tx_hash".into()))?
-		.to_owned();
+	let tx_hash_str = compute_raw_tx_hash(&tx)?;
 	let signature = sign_tx(&tx_hash_str, &state.private_key, inputs.len())?;
 	let mut tx = tx;
 	inject_witness(&mut tx, &signature);
@@ -292,11 +289,7 @@ pub async fn build_propose_reputation(
 		"witnesses": witnesses,
 	});
 
-	let accepted = state.ckb.test_tx_pool_accept(&tx).await?;
-	let tx_hash_str = accepted["tx_hash"]
-		.as_str()
-		.ok_or_else(|| TxBuildError::Rpc("test_tx_pool_accept: missing tx_hash".into()))?
-		.to_owned();
+	let tx_hash_str = compute_raw_tx_hash(&tx)?;
 	let signature = sign_tx(&tx_hash_str, &state.private_key, all_inputs.len())?;
 	let mut tx = tx;
 	inject_witness(&mut tx, &signature);
@@ -372,11 +365,7 @@ pub async fn build_finalize_reputation(
 		"witnesses": witnesses,
 	});
 
-	let accepted = state.ckb.test_tx_pool_accept(&tx).await?;
-	let tx_hash_str = accepted["tx_hash"]
-		.as_str()
-		.ok_or_else(|| TxBuildError::Rpc("test_tx_pool_accept: missing tx_hash".into()))?
-		.to_owned();
+	let tx_hash_str = compute_raw_tx_hash(&tx)?;
 	let signature = sign_tx(&tx_hash_str, &state.private_key, all_inputs.len())?;
 	let mut tx = tx;
 	inject_witness(&mut tx, &signature);

@@ -4,6 +4,7 @@ use serde_json::Value;
 use crate::{errors::TxBuildError, state::ckb_to_shannons, AppState};
 
 use super::{
+	badge::build_mint_badge,
 	capability::build_mint_capability,
 	identity::build_spawn_agent,
 	job::{
@@ -52,6 +53,8 @@ pub enum BuildRequest {
 		job_index: u32,
 		/// The worker's lock_args (0x-prefixed 20-byte hex) to receive the reward.
 		worker_lock_args: String,
+		/// Optional SHA-256 result hash (0x-prefixed 32-byte hex) for on-chain proof of work.
+		result_hash: Option<String>,
 	},
 	/// Cancel an Open/Reserved job: destroy the cell and reclaim capacity to poster.
 	CancelJob {
@@ -75,6 +78,19 @@ pub enum BuildRequest {
 	MintCapability {
 		/// blake2b-256 hash of the capability type (0x-prefixed hex).
 		capability_hash: String,
+	},
+	/// Mint a PoP (Proof of Participation) badge for a completed job.
+	MintBadge {
+		/// The job cell's original tx_hash (0x-prefixed 32-byte hex).
+		job_tx_hash: String,
+		/// The job cell's output index.
+		job_index: u32,
+		/// The worker's lock_args who completed the job (0x-prefixed 20-byte hex).
+		worker_lock_args: String,
+		/// Optional result hash from the completed work (0x-prefixed 32-byte hex).
+		result_hash: Option<String>,
+		/// The tx_hash of the complete_job transaction (0x-prefixed 32-byte hex).
+		completed_at_tx: String,
 	},
 	/// Create a new reputation cell for this agent.
 	CreateReputation,
@@ -141,9 +157,13 @@ pub async fn build_and_sign(
 			Ok(BuildResult { tx_hash, tx })
 		}
 
-		BuildRequest::CompleteJob { job_tx_hash, job_index, worker_lock_args } => {
+		BuildRequest::CompleteJob { job_tx_hash, job_index, worker_lock_args, result_hash } => {
+			let parsed_hash = result_hash
+				.as_deref()
+				.map(parse_hash_32)
+				.transpose()?;
 			let (tx, tx_hash) =
-				build_complete_job(state, &job_tx_hash, job_index, &worker_lock_args).await?;
+				build_complete_job(state, &job_tx_hash, job_index, &worker_lock_args, parsed_hash).await?;
 			Ok(BuildResult { tx_hash, tx })
 		}
 
@@ -174,6 +194,25 @@ pub async fn build_and_sign(
 		BuildRequest::MintCapability { capability_hash } => {
 			let cap_hash = parse_hash_32(&capability_hash)?;
 			let (tx, tx_hash) = build_mint_capability(state, &cap_hash).await?;
+			Ok(BuildResult { tx_hash, tx })
+		}
+
+		BuildRequest::MintBadge {
+			job_tx_hash,
+			job_index,
+			worker_lock_args,
+			result_hash,
+			completed_at_tx,
+		} => {
+			let (tx, tx_hash) = build_mint_badge(
+				state,
+				&job_tx_hash,
+				job_index,
+				&worker_lock_args,
+				result_hash.as_deref(),
+				&completed_at_tx,
+			)
+			.await?;
 			Ok(BuildResult { tx_hash, tx })
 		}
 

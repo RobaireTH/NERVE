@@ -14,7 +14,7 @@ mod state;
 mod tx_builder;
 
 use api::{
-	admin::deploy_bin,
+	admin::{deploy_bin, test_spending_cap},
 	agent::{get_balance, get_cells},
 	tx::{broadcast_tx, build_and_broadcast, build_tx, estimate_fee, tx_status},
 };
@@ -25,9 +25,8 @@ async fn main() {
 	tracing_subscriber::fmt::init();
 
 	let app_state = AppState::from_env().unwrap_or_else(|e| {
-		tracing::warn!("could not load full AppState ({e}); starting in degraded mode");
-		// Provide a no-op state so the service can still respond to /health on startup.
-		panic!("AGENT_PRIVATE_KEY must be set: {e}");
+		eprintln!("fatal: {e}");
+		std::process::exit(1);
 	});
 
 	let app = Router::new()
@@ -37,6 +36,7 @@ async fn main() {
 		.route("/agent/cells", get(get_cells))
 		// Admin endpoints (deployment tooling — not exposed externally in production).
 		.route("/admin/deploy-bin", post(deploy_bin))
+		.route("/admin/test-spending-cap", post(test_spending_cap))
 		// Transaction builder endpoints.
 		.route("/tx/build", post(build_tx))
 		.route("/tx/broadcast", post(broadcast_tx))

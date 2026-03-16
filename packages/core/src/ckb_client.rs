@@ -30,6 +30,9 @@ pub struct LiveCell {
 	pub output: CellOutput,
 	pub out_point: OutPoint,
 	pub block_number: String,
+	/// Cell data as 0x-prefixed hex, returned by the indexer when not filtered out.
+	#[allow(dead_code)]
+	pub output_data: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -161,6 +164,10 @@ impl CkbClient {
 		parse_hex_u64(&hex)
 	}
 
+	/// Returns live cells matching the given lock script.
+	///
+	/// Only returns cells with empty data (`output_data_len == 0`) to avoid
+	/// accidentally consuming contract data cells as fee inputs.
 	pub async fn get_cells_by_lock(
 		&self,
 		lock: &Script,
@@ -174,6 +181,30 @@ impl CkbClient {
 					"args": lock.args,
 				},
 				"script_type": "lock",
+				"filter": {
+					"output_data_len_range": ["0x0", "0x1"]
+				},
+			},
+			"asc",
+			format!("{:#x}", limit),
+		]);
+		self.indexer("get_cells", params).await
+	}
+
+	/// Returns live cells matching the given type script (no data length filter).
+	pub async fn get_cells_by_type_script(
+		&self,
+		type_script: &Script,
+		limit: u32,
+	) -> Result<GetCellsResult, TxBuildError> {
+		let params = json!([
+			{
+				"script": {
+					"code_hash": type_script.code_hash,
+					"hash_type": type_script.hash_type,
+					"args": type_script.args,
+				},
+				"script_type": "type",
 			},
 			"asc",
 			format!("{:#x}", limit),
@@ -183,10 +214,6 @@ impl CkbClient {
 
 	pub async fn send_transaction(&self, tx: &Value) -> Result<String, TxBuildError> {
 		self.rpc("send_transaction", json!([tx, "passthrough"])).await
-	}
-
-	pub async fn test_tx_pool_accept(&self, tx: &Value) -> Result<Value, TxBuildError> {
-		self.rpc("test_tx_pool_accept", json!([tx, "passthrough"])).await
 	}
 
 	pub async fn get_transaction(&self, tx_hash: &str) -> Result<Value, TxBuildError> {

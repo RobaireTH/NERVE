@@ -6,6 +6,7 @@ use crate::{
 	state::{parse_capacity_hex, AppState, SECP256K1_CODE_HASH, SECP256K1_DEP_TX_HASH, SECP256K1_HASH_TYPE},
 };
 
+use super::molecule::compute_raw_tx_hash;
 use super::signing::{inject_witness, placeholder_witness, sign_tx};
 
 // Minimum CKB required for a cell to exist on-chain (61 CKB).
@@ -117,12 +118,7 @@ pub async fn build_transfer(
 		"witnesses": witnesses,
 	});
 
-	// Obtain the tx hash by doing a dry-run (test_tx_pool_accept returns the hash).
-	let accepted = state.ckb.test_tx_pool_accept(&tx).await?;
-	let tx_hash = accepted["tx_hash"]
-		.as_str()
-		.ok_or_else(|| TxBuildError::Rpc("test_tx_pool_accept: missing tx_hash".into()))?
-		.to_owned();
+	let tx_hash = compute_raw_tx_hash(&tx)?;
 
 	// Sign and inject the witness.
 	let signature = sign_tx(&tx_hash, &state.private_key, inputs.len())?;
