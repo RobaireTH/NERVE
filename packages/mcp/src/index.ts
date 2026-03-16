@@ -1,17 +1,25 @@
 import express, { Request, Response, NextFunction } from 'express';
+import path from 'path';
 import chainRouter from './routes/chain.js';
 import jobsRouter from './routes/jobs.js';
 import agentsRouter from './routes/agents.js';
 import fiberRouter from './routes/fiber.js';
+import discoverRouter from './routes/discover.js';
 
 const app = express();
 const PORT = Number(process.env.MCP_PORT ?? 8081);
 
 app.use(express.json({ limit: '1mb' }));
 
+// Serve static docs site.
+app.use('/docs', express.static(path.resolve(__dirname, '../docs')));
+
 app.get('/health', (_req, res) => {
 	res.json({ status: 'ok', service: 'nerve-mcp' });
 });
+
+// Discovery endpoints — the public front door.
+app.use('/', discoverRouter);
 
 app.use('/chain', chainRouter);
 app.use('/jobs', jobsRouter);

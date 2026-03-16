@@ -69,11 +69,21 @@ export async function getCellsByScript(
 }
 
 export async function getLiveCell(outPoint: OutPoint, withData = true): Promise<LiveCell | null> {
-	const result = await rpc<{ cell: LiveCell | null }>(RPC_URL, 'get_live_cell', [
+	interface RpcLiveCell {
+		data: { content: string; hash: string } | null;
+		output: CellOutput;
+	}
+	const result = await rpc<{ cell: RpcLiveCell | null; status: string }>(RPC_URL, 'get_live_cell', [
 		outPoint,
 		withData,
 	]);
-	return result.cell;
+	if (!result.cell || result.status !== 'live') return null;
+	return {
+		output: result.cell.output,
+		output_data: result.cell.data?.content ?? '0x',
+		out_point: outPoint,
+		block_number: '0x0',
+	};
 }
 
 export async function getTransaction(txHash: string): Promise<unknown> {

@@ -1,0 +1,257 @@
+import { Router } from 'express';
+import { getCellsByScript, getBalanceByLock, Script } from '../ckb.js';
+
+const router = Router();
+
+const AGENT_TYPE_CODE_HASH = process.env.AGENT_IDENTITY_TYPE_CODE_HASH ?? '';
+const REP_TYPE_CODE_HASH = process.env.REPUTATION_TYPE_CODE_HASH ?? '';
+const CAP_NFT_TYPE_CODE_HASH = process.env.CAP_NFT_TYPE_CODE_HASH ?? '';
+const MCP_PORT = process.env.MCP_PORT ?? '8081';
+
+// GET / — Marketplace manifest. Any agent or human hitting the root URL discovers
+// what NERVE is, what endpoints exist, and how to interact.
+router.get('/', (_req, res) => {
+	const base = `http://localhost:${MCP_PORT}`;
+	res.json({
+		name: 'NERVE',
+		version: '0.1.0',
+		description:
+			'Autonomous agent marketplace on CKB. Agents post and complete jobs for CKB rewards, with on-chain identity, reputation, capability NFTs, and soulbound badges.',
+		network: 'CKB Testnet (Pudge)',
+		endpoints: {
+			discovery: {
+				manifest: { method: 'GET', path: '/', description: 'This manifest.' },
+				workers: {
+					method: 'GET',
+					path: '/discover/workers',
+					description: 'List registered agents with reputation and capabilities.',
+				},
+			},
+			marketplace: {
+				list_jobs: {
+					method: 'GET',
+					path: '/jobs?status=Open',
+					description: 'List open job cells available for workers.',
+				},
+				match_jobs: {
+					method: 'GET',
+					path: '/jobs/match/:lock_args',
+					description: 'Find jobs matching an agent\'s held capability NFTs.',
+				},
+				get_job: {
+					method: 'GET',
+					path: '/jobs/:tx_hash/:index',
+					description: 'Get a specific job cell by outpoint.',
+				},
+				post_job: {
+					method: 'POST',
+					path: '/jobs',
+					description: 'Post a new job (proxied to nerve-core).',
+					body: '{ reward_ckb, ttl_blocks, capability_hash }',
+				},
+			},
+			agents: {
+				identity: {
+					method: 'GET',
+					path: '/agents/:lock_args',
+					description: 'Agent identity cell (spending limits, pubkey).',
+				},
+				reputation: {
+					method: 'GET',
+					path: '/agents/:lock_args/reputation',
+					description: 'Agent reputation (jobs completed/abandoned).',
+				},
+				badges: {
+					method: 'GET',
+					path: '/agents/:lock_args/badges',
+					description: 'PoP badges earned by the agent.',
+				},
+				capabilities: {
+					method: 'GET',
+					path: '/agents/:lock_args/capabilities',
+					description: 'Capability NFTs held by the agent.',
+				},
+			},
+			chain: {
+				height: { method: 'GET', path: '/chain/height', description: 'Current block height.' },
+				balance: {
+					method: 'GET',
+					path: '/chain/balance/:lock_args',
+					description: 'CKB balance for a lock_args.',
+				},
+			},
+			fiber: {
+				node: { method: 'GET', path: '/fiber/node', description: 'Fiber node info.' },
+				channels: { method: 'GET', path: '/fiber/channels', description: 'List payment channels.' },
+				invoice: {
+					method: 'POST',
+					path: '/fiber/invoice',
+					description: 'Create a payment invoice.',
+				},
+				hold_invoice: {
+					method: 'POST',
+					path: '/fiber/hold-invoice',
+					description: 'Create a hold invoice for escrow.',
+				},
+				settle: {
+					method: 'POST',
+					path: '/fiber/settle',
+					description: 'Settle a hold invoice with preimage.',
+				},
+				pay: { method: 'POST', path: '/fiber/pay', description: 'Send payment.' },
+				fiber_status: {
+					method: 'GET',
+					path: '/fiber/ready',
+					description: 'Check if Fiber payment layer is operational.',
+				},
+			},
+			admin: {
+				jailbreak_demo: {
+					method: 'POST',
+					url: 'http://localhost:8080/admin/test-spending-cap',
+					description:
+						'Demonstrate consensus-level spending cap rejection. Requires ENABLE_ADMIN_API=1 on nerve-core.',
+				},
+			},
+		},
+		known_capabilities: {
+			open: '0x0000000000000000000000000000000000000000000000000000000000000000 — Any agent can claim.',
+			service_payment: 'Agents that can process service payments via Fiber Network.',
+		},
+		job_lifecycle: [
+			'Open — poster locks CKB reward in a job cell.',
+			'Reserved — a worker claims intent; worker_lock_args is set.',
+			'Claimed — worker confirms; work begins.',
+			'Completed — worker submits result_hash; reward flows to worker, badge minted.',
+		],
+		getting_started: [
+			'1. GET / to read this manifest.',
+			'2. GET /discover/workers to find available agents.',
+			'3. GET /jobs?status=Open to browse the marketplace.',
+			'4. POST /jobs to create a job (or use the Telegram bot).',
+			`5. Full docs: ${base}/docs (if served) or see docs/index.html in the repo.`,
+		],
+	});
+});
+
+// GET /discover/workers — List all registered agents with their reputation, capabilities,
+// badges, and balance. This is the public directory that lets any external agent or
+// human discover who's available to work.
+router.get('/discover/workers', async (_req, res) => {
+	if (!AGENT_TYPE_CODE_HASH) {
+		res.status(503).json({ error: 'AGENT_IDENTITY_TYPE_CODE_HASH not configured' });
+		return;
+	}
+
+	try {
+		// Find all identity cells.
+		const identityScript: Script = {
+			code_hash: AGENT_TYPE_CODE_HASH,
+			hash_type: 'data1',
+			args: '0x',
+		};
+		const identityCells = await getCellsByScript(identityScript, 'type', 200);
+
+		const workers = await Promise.all(
+			identityCells.objects.map(async (cell) => {
+				const lockArgs = cell.output.lock.args;
+				const dataHex = cell.output_data ?? '0x';
+				const raw = Buffer.from(dataHex.replace('0x', ''), 'hex');
+
+				// Parse identity data.
+				let spendingLimitCkb = 0;
+				let dailyLimitCkb = 0;
+				if (raw.length >= 50) {
+					spendingLimitCkb = Number(raw.readBigUInt64LE(34)) / 1e8;
+					dailyLimitCkb = Number(raw.readBigUInt64LE(42)) / 1e8;
+				}
+
+				// Fetch reputation (best-effort).
+				let reputation = { jobs_completed: 0, jobs_abandoned: 0 };
+				if (REP_TYPE_CODE_HASH) {
+					try {
+						const repScript: Script = {
+							code_hash: REP_TYPE_CODE_HASH,
+							hash_type: 'data1',
+							args: '0x',
+						};
+						const repCells = await getCellsByScript(repScript, 'type', 200);
+						const match = repCells.objects.find((c) => {
+							const d = Buffer.from((c.output_data ?? '0x').replace('0x', ''), 'hex');
+							if (d.length < 46) return false;
+							return '0x' + d.subarray(26, 46).toString('hex') === lockArgs.toLowerCase();
+						});
+						if (match) {
+							const d = Buffer.from(
+								(match.output_data ?? '0x').replace('0x', ''),
+								'hex',
+							);
+							reputation.jobs_completed = Number(d.readBigUInt64LE(2));
+							reputation.jobs_abandoned = Number(d.readBigUInt64LE(10));
+						}
+					} catch {
+						// Reputation lookup failed — continue with defaults.
+					}
+				}
+
+				// Fetch capabilities (best-effort).
+				const capabilities: string[] = [];
+				if (CAP_NFT_TYPE_CODE_HASH) {
+					try {
+						const capScript: Script = {
+							code_hash: CAP_NFT_TYPE_CODE_HASH,
+							hash_type: 'data1',
+							args: '0x',
+						};
+						const capCells = await getCellsByScript(capScript, 'type', 200);
+						for (const c of capCells.objects) {
+							const d = Buffer.from(
+								(c.output_data ?? '0x').replace('0x', ''),
+								'hex',
+							);
+							if (d.length < 54) continue;
+							const agentArgs = '0x' + d.subarray(2, 22).toString('hex');
+							if (agentArgs.toLowerCase() === lockArgs.toLowerCase()) {
+								capabilities.push('0x' + d.subarray(22, 54).toString('hex'));
+							}
+						}
+					} catch {
+						// Capability lookup failed — continue.
+					}
+				}
+
+				// Fetch balance (best-effort).
+				let balanceCkb = 0;
+				try {
+					const shannons = await getBalanceByLock(lockArgs);
+					balanceCkb = Number(shannons) / 1e8;
+				} catch {
+					// Balance lookup failed — continue.
+				}
+
+				const total = reputation.jobs_completed + reputation.jobs_abandoned;
+				const score = total > 0 ? Math.round((reputation.jobs_completed / total) * 100) : 100;
+
+				return {
+					lock_args: lockArgs,
+					spending_limit_ckb: spendingLimitCkb,
+					daily_limit_ckb: dailyLimitCkb,
+					reputation: {
+						...reputation,
+						score_pct: score,
+					},
+					capabilities,
+					balance_ckb: balanceCkb,
+					identity_outpoint: cell.out_point,
+				};
+			}),
+		);
+
+		res.json({ workers, count: workers.length });
+	} catch (e) {
+		console.error('discover route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
+	}
+});
+
+export default router;

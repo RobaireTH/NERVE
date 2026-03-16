@@ -5,6 +5,8 @@ const router = Router();
 
 const AGENT_TYPE_CODE_HASH = process.env.AGENT_IDENTITY_TYPE_CODE_HASH ?? '';
 const REP_TYPE_CODE_HASH = process.env.REPUTATION_TYPE_CODE_HASH ?? '';
+const DOB_BADGE_CODE_HASH = process.env.DOB_BADGE_CODE_HASH ?? '';
+const CAP_NFT_TYPE_CODE_HASH = process.env.CAP_NFT_TYPE_CODE_HASH ?? '';
 
 // ─── Agent identity cell data layout (50 bytes) ──────────────────────────────
 // [0]      version: u8
@@ -133,6 +135,85 @@ router.get('/:lock_args/reputation', async (req, res) => {
 		}
 		const rep = parseReputationCell(match.output_data);
 		res.json({ reputation: rep, out_point: match.out_point });
+	} catch (e) {
+		console.error('agents route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
+	}
+});
+
+// GET /agents/:lock_args/badges — list PoP badges for an agent.
+router.get('/:lock_args/badges', async (req, res) => {
+	if (!DOB_BADGE_CODE_HASH) {
+		res.status(503).json({ error: 'DOB_BADGE_CODE_HASH not configured' });
+		return;
+	}
+
+	const { lock_args } = req.params;
+
+	const script: Script = {
+		code_hash: DOB_BADGE_CODE_HASH,
+		hash_type: 'type',
+		args: '0x',
+	};
+
+	try {
+		const result = await getCellsByScript(script, 'type', 200);
+		const badges = result.objects
+			.filter((c) => c.output.lock.args.toLowerCase() === lock_args.toLowerCase())
+			.map((c) => {
+				const argsHex = c.output.type?.args ?? '0x';
+				const argsRaw = Buffer.from(argsHex.replace('0x', ''), 'hex');
+				const dataHex = c.output_data ?? '0x';
+				const dataRaw = Buffer.from(dataHex.replace('0x', ''), 'hex');
+				return {
+					out_point: c.out_point,
+					type_id: argsRaw.length >= 20 ? '0x' + argsRaw.subarray(0, 20).toString('hex') : null,
+					event_id_hash: argsRaw.length >= 40 ? '0x' + argsRaw.subarray(20, 40).toString('hex') : null,
+					recipient_hash: argsRaw.length >= 60 ? '0x' + argsRaw.subarray(40, 60).toString('hex') : null,
+					content_hash: dataRaw.length >= 34 ? '0x' + dataRaw.subarray(2, 34).toString('hex') : null,
+				};
+			});
+		res.json({ badges, count: badges.length });
+	} catch (e) {
+		console.error('agents route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
+	}
+});
+
+// GET /agents/:lock_args/capabilities — list capability NFTs for an agent.
+router.get('/:lock_args/capabilities', async (req, res) => {
+	if (!CAP_NFT_TYPE_CODE_HASH) {
+		res.status(503).json({ error: 'CAP_NFT_TYPE_CODE_HASH not configured' });
+		return;
+	}
+
+	const { lock_args } = req.params;
+
+	const script: Script = {
+		code_hash: CAP_NFT_TYPE_CODE_HASH,
+		hash_type: 'data1',
+		args: '0x',
+	};
+
+	try {
+		const result = await getCellsByScript(script, 'type', 200);
+		// Capability data layout: [0] version, [1] proof_type, [2..22] agent_lock_args, [22..54] capability_hash.
+		const capabilities = result.objects
+			.filter((c) => {
+				const dataHex = c.output_data ?? '0x';
+				const raw = Buffer.from(dataHex.replace('0x', ''), 'hex');
+				if (raw.length < 54) return false;
+				const agentArgs = '0x' + raw.subarray(2, 22).toString('hex');
+				return agentArgs.toLowerCase() === lock_args.toLowerCase();
+			})
+			.map((c) => {
+				const raw = Buffer.from((c.output_data ?? '0x').replace('0x', ''), 'hex');
+				return {
+					out_point: c.out_point,
+					capability_hash: '0x' + raw.subarray(22, 54).toString('hex'),
+				};
+			});
+		res.json({ capabilities, count: capabilities.length });
 	} catch (e) {
 		console.error('agents route error:', e);
 		res.status(502).json({ error: 'upstream request failed' });
