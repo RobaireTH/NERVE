@@ -61,9 +61,12 @@ Agent Status: <lock_args>
   Daily limit:    <daily_limit_ckb> CKB/day
 
   Reputation:
+    Version:   <version> (0=legacy, 1=proof-chain)
     Completed: <jobs_completed>
     Abandoned: <jobs_abandoned>
     Score:     <jobs_completed / (jobs_completed + jobs_abandoned) * 100>%
+    Proof root:     <proof_root or "N/A (V0)">
+    Settlement hash: <pending_settlement_hash or "none">
 
   Badges earned:  <badge_count>
   Capabilities:   <cap_count> (<comma-separated short hashes>)

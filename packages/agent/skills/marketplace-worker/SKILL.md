@@ -87,12 +87,32 @@ When `result_hash` is provided, a 33-byte result memo cell is created under the 
 
 Mints a soulbound PoP (Proof of Participation) badge under the worker's lock. The badge records the job reference, result hash, and completion transaction on-chain via the dob-badge contract.
 
+**propose_reputation_v1** (use when the agent's reputation cell is V1)
+```json
+{
+  "intent": "propose_reputation_v1",
+  "rep_tx_hash": "0x<32-byte-hex>",
+  "rep_index": 0,
+  "propose_type": 1,
+  "dispute_window_blocks": 100,
+  "job_tx_hash": "0x<32-byte-hex>",
+  "job_index": 0,
+  "worker_lock_args": "0x<20-byte-hex>",
+  "poster_lock_args": "0x<20-byte-hex>",
+  "reward_shannons": 500000000,
+  "result_hash": "0x<32-byte-hex or omit>"
+}
+```
+
+This computes a settlement hash from the job completion evidence and embeds it in the V1 reputation cell, building the blake2b proof chain. Always prefer `propose_reputation_v1` over `propose_reputation` when the reputation cell version is 1.
+
 ## Workflow
 
 1. Verify agent balance is sufficient (call `GET /agent/balance`).
-2. Call `POST /tx/build-and-broadcast` with the intent payload.
-3. On success: poll `GET /tx/status?tx_hash=<hash>` every 5 seconds until status is `committed` (max 10 polls).
-4. On error: parse the structured error, correct the parameter, and retry once.
+2. Check reputation cell version: `GET http://localhost:8081/agents/<lock_args>/reputation` — if `version` is 1, use V1 intents.
+3. Call `POST /tx/build-and-broadcast` with the intent payload.
+4. On success: poll `GET /tx/status?tx_hash=<hash>` every 5 seconds until status is `committed` (max 10 polls).
+5. On error: parse the structured error, correct the parameter, and retry once.
 
 ## Error Handling
 
