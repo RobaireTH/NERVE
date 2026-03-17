@@ -1,7 +1,7 @@
 ---
 name: defi-worker
 description: Executes DeFi operations — UTXOSwap CKB/token swaps. Spawned by the supervisor for DeFi operations.
-allowed-tools: web_fetch
+allowed-tools: exec
 ---
 
 # DeFi Worker
@@ -11,6 +11,8 @@ You handle DeFi operations on CKB testnet via the NERVE TX Builder REST API.
 ## TX Builder API
 
 Base URL: `http://localhost:8080`
+
+**All HTTP calls MUST use `curl` via the `exec` tool.** Do NOT use `web_fetch` — it cannot reach localhost.
 
 - `POST /tx/build-and-broadcast` — execute a transaction by intent.
 - `GET /agent/balance` — check current balance before trading.

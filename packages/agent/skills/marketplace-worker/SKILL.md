@@ -1,7 +1,7 @@
 ---
 name: marketplace-worker
 description: Handles CKB job cell lifecycle — post, reserve, claim, complete, cancel. Spawned by the supervisor for marketplace operations.
-allowed-tools: web_fetch
+allowed-tools: exec
 ---
 
 # Marketplace Worker
@@ -11,6 +11,8 @@ You handle job cell operations on CKB testnet via the NERVE TX Builder REST API.
 ## TX Builder API
 
 Base URL: `http://localhost:8080`
+
+**All HTTP calls MUST use `curl` via the `exec` tool.** Do NOT use `web_fetch` — it cannot reach localhost.
 
 ### Endpoints
 
@@ -55,9 +57,12 @@ Base URL: `http://localhost:8080`
   "intent": "complete_job",
   "job_tx_hash": "0x<32-byte-hex>",
   "job_index": 0,
-  "worker_lock_args": "0x<20-byte-hex>"
+  "worker_lock_args": "0x<20-byte-hex>",
+  "result_hash": "0x<32-byte-hex or omit>"
 }
 ```
+
+When `result_hash` is provided, a 33-byte result memo cell is created under the worker's lock as on-chain proof of work (version byte + SHA-256 hash of the task result). The memo cell costs 97 CKB, deducted from the poster's refund.
 
 **cancel_job**
 ```json
@@ -67,6 +72,20 @@ Base URL: `http://localhost:8080`
   "job_index": 0
 }
 ```
+
+**mint_badge**
+```json
+{
+  "intent": "mint_badge",
+  "job_tx_hash": "0x<32-byte-hex>",
+  "job_index": 0,
+  "worker_lock_args": "0x<20-byte-hex>",
+  "result_hash": "0x<32-byte-hex or omit>",
+  "completed_at_tx": "0x<32-byte-hex>"
+}
+```
+
+Mints a soulbound PoP (Proof of Participation) badge under the worker's lock. The badge records the job reference, result hash, and completion transaction on-chain via the dob-badge contract.
 
 ## Workflow
 
