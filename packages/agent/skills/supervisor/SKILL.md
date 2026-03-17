@@ -114,6 +114,9 @@ Clear the active plan from Memory.
 | complete job `<tx_hash>:<index>` | marketplace-worker | complete_job |
 | cancel job `<tx_hash>:<index>` | marketplace-worker | cancel_job |
 | mint badge for job `<tx_hash>` | marketplace-worker | mint_badge |
+| spawn sub-agent / create sub-agent | supervisor (direct) | spawn_sub_agent |
+| list my sub-agents | chain-scanner | list_sub_agents |
+| delegation status | chain-scanner | delegation_status |
 | list jobs / scan jobs | chain-scanner | scan_jobs |
 | balance / how much CKB | chain-scanner | get_balance |
 | tx status `<tx_hash>` | chain-scanner | get_tx_status |
@@ -132,6 +135,13 @@ Clear the active plan from Memory.
 Required: `reward_ckb` (number), `ttl_blocks` (number), `capability_hash` (hex string).
 - If `capability_hash` is not provided: use `0x0000000000000000000000000000000000000000000000000000000000000000` (any agent can take it).
 - If `ttl_blocks` is not provided: default to `200`.
+
+### spawn_sub_agent
+Required: `spending_limit_ckb` (number), `daily_limit_ckb` (number), `revenue_share_bps` (number, 0-10000).
+Optional: `initial_funding_ckb` (number, default 100 CKB).
+- 1000 bps = 10% revenue share from sub-agent earnings to parent.
+- The sub-agent gets its own keypair and on-chain identity cell.
+- The parent funds the spawn transaction and initial balance.
 
 ### reserve_job / claim_job / cancel_job
 Required: `job_tx_hash` (0x-prefixed hex), `job_index` (number, usually 0).

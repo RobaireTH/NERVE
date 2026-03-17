@@ -43,11 +43,12 @@ Aggregates a comprehensive view of an agent's on-chain state. Call all of the fo
 4. **Badges:** `GET http://localhost:8081/agents/<lock_args>/badges` → extract `count`.
 5. **Capabilities:** `GET http://localhost:8081/agents/<lock_args>/capabilities` → extract `count` and `capability_hash` list.
 6. **Active jobs:** `GET http://localhost:8081/jobs?status=Reserved` and `GET http://localhost:8081/jobs?status=Claimed` → count jobs where `worker_lock_args` matches this agent.
-7. **Fiber node info:** `fiber-pay node info --json` → extract `version`, `node_id`, `peers_count`.
+7. **Delegation:** From the identity response (step 2), extract `parent_lock_args` and `revenue_share_bps` if present (v1 identity). Also `GET http://localhost:8080/agent/sub-agents` to count managed sub-agents.
+8. **Fiber node info:** `fiber-pay node info --json` → extract `version`, `node_id`, `peers_count`.
    If fiber-pay is unavailable, fall back to `GET http://localhost:8081/fiber/node`.
-8. **Fiber channels:** `fiber-pay channel list --json` → extract `count` and total `local_balance`.
+9. **Fiber channels:** `fiber-pay channel list --json` → extract `count` and total `local_balance`.
    If fiber-pay is unavailable, fall back to `GET http://localhost:8081/fiber/channels`.
-9. **Fiber wallet balance:** `fiber-pay wallet balance --json` → extract `balance_ckb`.
+10. **Fiber wallet balance:** `fiber-pay wallet balance --json` → extract `balance_ckb`.
    This is the Fiber L2 balance, separate from CKB L1.
 
 Format as a rich summary:
@@ -68,6 +69,11 @@ Agent Status: <lock_args>
   Capabilities:   <cap_count> (<comma-separated short hashes>)
   Active jobs:    <active_count>
 
+  Delegation:
+    Parent:       <parent_lock_args or "none (root agent)">
+    Revenue share: <revenue_share_bps / 100>%
+    Sub-agents:   <sub_agent_count>
+
   Fiber Network:
     Node:     <version> (<node_id short>)
     Peers:    <peers_count>
@@ -76,6 +82,25 @@ Agent Status: <lock_args>
 ```
 
 If any endpoint returns an error (404, 502, etc.), show "N/A" for that section and continue.
+
+### list_sub_agents
+
+Fetch the agent's sub-agents:
+```
+GET http://localhost:8080/agent/sub-agents
+```
+
+Return the list of sub-agent lock_args, revenue share, and identity outpoints. Enrich with on-chain reputation data from:
+```
+GET http://localhost:8081/agents/<sub_agent_lock_args>/reputation
+```
+
+### delegation_status
+
+Aggregates delegation info for the agent:
+1. Fetch identity: `GET http://localhost:8081/agents/<lock_args>` — check for parent reference.
+2. Fetch sub-agents: `GET http://localhost:8080/agent/sub-agents` — count and list.
+3. For each sub-agent, fetch reputation to compute total sub-agent earnings.
 
 ### get_capabilities
 
@@ -92,7 +117,7 @@ Always return JSON:
 ```json
 {
   "worker": "chain-scanner",
-  "action": "<scan_jobs | get_balance | get_tx_status | get_agent | get_reputation | get_full_status | get_capabilities>",
+  "action": "<scan_jobs | get_balance | get_tx_status | get_agent | get_reputation | get_full_status | get_capabilities | list_sub_agents | delegation_status>",
   "status": "success | error",
   "data": { ... },
   "error": null
