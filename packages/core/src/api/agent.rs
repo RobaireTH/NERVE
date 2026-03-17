@@ -1,10 +1,13 @@
-use axum::{extract::State, Json};
+use axum::{
+	extract::{Path, State},
+	Json,
+};
 use serde_json::{json, Value};
 
 use crate::{
+	ckb_client::Script,
 	errors::TxBuildError,
 	state::{parse_capacity_hex, shannons_to_ckb, AppState, SECP256K1_CODE_HASH, SECP256K1_HASH_TYPE},
-	ckb_client::Script,
 };
 
 pub async fn get_balance(
@@ -57,4 +60,40 @@ pub async fn get_cells(
 		.collect();
 
 	Ok(Json(json!({ "cells": cells })))
+}
+
+/// GET /agent/sub-agents — list all managed sub-agents.
+pub async fn list_sub_agents(
+	State(state): State<AppState>,
+) -> Result<Json<Value>, TxBuildError> {
+	let agents = state.sub_agents.read().await;
+	let list: Vec<Value> = agents
+		.values()
+		.map(|info| {
+			json!({
+				"lock_args": info.lock_args,
+				"parent_lock_args": info.parent_lock_args,
+				"revenue_share_bps": info.revenue_share_bps,
+				"identity_outpoint": info.identity_outpoint,
+			})
+		})
+		.collect();
+	Ok(Json(json!({ "sub_agents": list, "count": list.len() })))
+}
+
+/// GET /agent/sub-agents/:lock_args — get a specific sub-agent.
+pub async fn get_sub_agent(
+	State(state): State<AppState>,
+	Path(lock_args): Path<String>,
+) -> Result<Json<Value>, TxBuildError> {
+	let agents = state.sub_agents.read().await;
+	let info = agents.get(&lock_args).ok_or_else(|| {
+		TxBuildError::SubAgentError(format!("no sub-agent found for lock_args {lock_args}"))
+	})?;
+	Ok(Json(json!({
+		"lock_args": info.lock_args,
+		"parent_lock_args": info.parent_lock_args,
+		"revenue_share_bps": info.revenue_share_bps,
+		"identity_outpoint": info.identity_outpoint,
+	})))
 }

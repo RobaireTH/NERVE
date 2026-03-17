@@ -15,7 +15,7 @@ mod tx_builder;
 
 use api::{
 	admin::{deploy_bin, test_spending_cap},
-	agent::{get_balance, get_cells},
+	agent::{get_balance, get_cells, get_sub_agent, list_sub_agents},
 	tx::{broadcast_tx, build_and_broadcast, build_tx, estimate_fee, tx_status},
 };
 use state::AppState;
@@ -34,6 +34,8 @@ async fn main() {
 		// Agent identity endpoints.
 		.route("/agent/balance", get(get_balance))
 		.route("/agent/cells", get(get_cells))
+		.route("/agent/sub-agents", get(list_sub_agents))
+		.route("/agent/sub-agents/:lock_args", get(get_sub_agent))
 		// Admin endpoints (deployment tooling — not exposed externally in production).
 		.route("/admin/deploy-bin", post(deploy_bin))
 		.route("/admin/test-spending-cap", post(test_spending_cap))
