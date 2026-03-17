@@ -8,7 +8,7 @@ import { FiberRpcClient, FiberRpcError, ckbToShannons as sdkCkbToShannons } from
 
 const FIBER_RPC_URL = process.env.FIBER_RPC_URL ?? 'http://localhost:8227';
 
-const client = new FiberRpcClient(FIBER_RPC_URL);
+const client = new FiberRpcClient({ url: FIBER_RPC_URL });
 
 // ─── Re-exported utilities ──────────────────────────────────────────────────
 
