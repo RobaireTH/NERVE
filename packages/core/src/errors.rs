@@ -44,6 +44,9 @@ pub enum TxBuildError {
 
 	#[error("key store error: {0}")]
 	KeyStoreError(String),
+
+	#[error("proof verification error: {0}")]
+	ProofVerificationError(String),
 }
 
 impl IntoResponse for TxBuildError {
@@ -62,6 +65,7 @@ impl IntoResponse for TxBuildError {
 			TxBuildError::UnknownIntent(_) => (StatusCode::BAD_REQUEST, "unknown_intent"),
 			TxBuildError::SubAgentError(_) => (StatusCode::BAD_REQUEST, "sub_agent_error"),
 			TxBuildError::KeyStoreError(_) => (StatusCode::INTERNAL_SERVER_ERROR, "key_store_error"),
+			TxBuildError::ProofVerificationError(_) => (StatusCode::BAD_REQUEST, "proof_verification_error"),
 		};
 
 		(status, Json(json!({ "error": code, "message": self.to_string() }))).into_response()
