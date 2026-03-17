@@ -43,7 +43,7 @@ ok "Poster node_id: $POSTER_NODE_ID"
 step "Worker: reading Fiber node info"
 WORKER_INFO=$(curl -sf -X POST "$FIBER_WORKER_RPC_URL" \
 	-H "Content-Type: application/json" \
-	-d '{"jsonrpc":"2.0","id":1,"method":"info_node_info","params":{}}')
+	-d '{"jsonrpc":"2.0","id":1,"method":"node_info","params":[]}')
 WORKER_NODE_ID=$(echo "$WORKER_INFO" | grep -o '"node_id":"[^"]*"' | cut -d'"' -f4 || true)
 WORKER_ADDR=$(echo "$WORKER_INFO" | grep -o '"addresses":\["[^"]*"' | grep -o '"[^"]*"$' | tr -d '"' || true)
 [[ -n "$WORKER_NODE_ID" ]] || fail "Could not read worker node_id from $FIBER_WORKER_RPC_URL"
