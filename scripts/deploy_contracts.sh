@@ -2,7 +2,8 @@
 # Deploy NERVE type scripts to CKB testnet.
 #
 # Prerequisites:
-#   - nerve-core server running: cargo run -p nerve-core
+#   - nerve-core server running with admin API enabled:
+#       ENABLE_ADMIN_API=1 cargo run -p nerve-core
 #   - AGENT_PRIVATE_KEY set in environment or .env
 #   - Sufficient testnet CKB in the agent wallet
 #

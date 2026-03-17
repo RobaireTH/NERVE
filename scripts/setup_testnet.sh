@@ -5,7 +5,7 @@
 # and creates reputation cells for both poster and worker agents.
 #
 # Prerequisites:
-#   - nerve-core running on :8080 (poster) and :8090 (worker)
+#   - nerve-core running on :8080 (poster) and :8090 (worker) with ENABLE_ADMIN_API=1
 #   - DEMO_POSTER_KEY and DEMO_WORKER_KEY set in environment
 #   - Sufficient testnet CKB in both wallets
 #
@@ -109,6 +109,62 @@ CAP_TX=$(post_tx "$WORKER_URL" \
 	|| fail "mint_capability failed"
 ok "Capability NFT: $CAP_TX:0"
 
+# ── Step 8: Fiber Network via fiber-pay (optional) ──────────────────────────
+
+FIBER_STATUS="skipped"
+
+step "Step 8: Fiber Network setup (optional)"
+
+if [[ -n "${SKIP_FIBER:-}" ]]; then
+	echo "   Skipped (SKIP_FIBER is set)."
+elif [[ -n "${FIBER_RPC_URL:-}" ]]; then
+	# User provided an external Fiber node — validate it responds.
+	if curl -sf -X POST "${FIBER_RPC_URL}" \
+		-H "Content-Type: application/json" \
+		-d '{"jsonrpc":"2.0","id":1,"method":"info_node_info","params":{}}' \
+		>/dev/null 2>&1; then
+		ok "External Fiber node reachable at ${FIBER_RPC_URL}"
+		FIBER_STATUS="external"
+	else
+		echo "   WARNING: FIBER_RPC_URL set but node not reachable at ${FIBER_RPC_URL}"
+		echo "   Fiber features will be unavailable until the node is running."
+		FIBER_STATUS="unreachable"
+	fi
+elif command -v npx >/dev/null 2>&1 && npx @fiber-pay/cli --version >/dev/null 2>&1; then
+	# fiber-pay CLI is available — start a daemon node.
+	echo "   Starting Fiber node via fiber-pay CLI..."
+	if npx @fiber-pay/cli node start --daemon --network testnet --json 2>/dev/null; then
+		ok "Fiber daemon started."
+		echo "   Waiting for node readiness..."
+		# Poll until the node reports ready (up to 60 seconds).
+		for i in $(seq 1 12); do
+			if npx @fiber-pay/cli node ready --json 2>/dev/null; then
+				ok "Fiber node ready."
+				FIBER_STATUS="fiber-pay"
+				break
+			fi
+			sleep 5
+		done
+		if [[ "$FIBER_STATUS" != "fiber-pay" ]]; then
+			echo "   WARNING: Fiber daemon started but not ready after 60s."
+			echo "   Check status with: npx @fiber-pay/cli node status --json"
+			FIBER_STATUS="fiber-pay-starting"
+		fi
+	else
+		echo "   WARNING: Failed to start Fiber daemon via fiber-pay."
+		echo "   Fiber features will be unavailable. To retry:"
+		echo "     npx @fiber-pay/cli node start --daemon --network testnet --json"
+		FIBER_STATUS="fiber-pay-failed"
+	fi
+else
+	echo "   fiber-pay CLI not found and FIBER_RPC_URL not set."
+	echo "   Fiber payment features will be unavailable."
+	echo "   To enable Fiber, either:"
+	echo "     1. Install fiber-pay: npm install -g @fiber-pay/cli"
+	echo "     2. Set FIBER_RPC_URL to an existing Fiber node."
+	FIBER_STATUS="unavailable"
+fi
+
 # ── Summary ───────────────────────────────────────────────────────────────────
 
 echo
@@ -122,6 +178,7 @@ echo "  Poster rep:      $POSTER_REP_TX:0"
 echo "  Worker rep:      $WORKER_REP_TX:0"
 echo "  AMM pool:        $POOL_TX:0"
 echo "  Capability NFT:  $CAP_TX:0"
+echo "  Fiber Network:   $FIBER_STATUS"
 echo
 echo "  Run: nerve demo"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
