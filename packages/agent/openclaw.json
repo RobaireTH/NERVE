@@ -6,7 +6,8 @@
 	},
 	"providers": {
 		"anthropic": {
-			"apiKey": "${ANTHROPIC_API_KEY}"
+			"apiKey": "${ANTHROPIC_API_KEY}",
+			"baseUrl": "${ANTHROPIC_BASE_URL}"
 		}
 	},
 	"channels": {
@@ -22,8 +23,16 @@
 			"./skills/payment-worker",
 			"./skills/defi-worker",
 			"./skills/chain-scanner",
-			"./skills/autonomous-worker"
+			"./skills/autonomous-worker",
+			"./skills/service-payment"
 		]
+	},
+	"tools": {
+		"web": {
+			"fetch": {
+				"allowPrivateNetwork": true
+			}
+		}
 	},
 	"crons": {
 		"job-scanner": {

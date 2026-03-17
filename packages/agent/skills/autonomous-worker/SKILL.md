@@ -1,7 +1,7 @@
 ---
 name: autonomous-worker
 description: Autonomous job discovery and execution loop. Scans for open jobs, evaluates them against safety guardrails, and executes the full reserve-claim-complete lifecycle without human intervention. All actions are logged to Memory for audit.
-allowed-tools: web_fetch, memory_read, memory_write
+allowed-tools: exec, memory_read, memory_write
 ---
 
 # Autonomous Worker
@@ -20,6 +20,10 @@ This skill is explicitly authorized to take on-chain actions autonomously. This 
 
 - TX Builder: `http://localhost:8080`
 - MCP HTTP Bridge: `http://localhost:8081`
+
+**All HTTP calls MUST use `curl` via the `exec` tool.** Do NOT use `web_fetch` — it cannot reach localhost. Examples:
+- GET: `curl -sf http://localhost:8081/jobs?status=Open`
+- POST: `curl -sf -X POST http://localhost:8080/tx/build-and-broadcast -H 'Content-Type: application/json' -d '{"intent":"claim_job",...}'`
 
 ## Guardrail Configuration
 
@@ -50,7 +54,7 @@ Read `nerve:auto:config` from Memory at the start of every run. If the key does 
 | `nerve:auto:config` | JSON object | Guardrail parameters. |
 | `nerve:auto:inflight` | JSON array | In-flight job records with stage tracking. |
 | `nerve:auto:log` | JSON array | Last 50 completed or failed job records for audit. |
-| `nerve:auto:stats` | JSON object | Cumulative stats: `jobs_completed`, `jobs_failed`, `total_reward_earned_ckb`. |
+| `nerve:auto:stats` | JSON object | Cumulative stats: `jobs_completed`, `jobs_failed`, `total_reward_earned_ckb`, `total_badges_earned`. |
 | `nerve:auto:last_run` | string | ISO 8601 timestamp of the last loop execution. |
 
 ### In-Flight Job Record
@@ -64,6 +68,8 @@ Read `nerve:auto:config` from Memory at the start of every run. If the key does 
   "reserve_tx": "0x...",
   "claim_tx": null,
   "complete_tx": null,
+  "result_hash": null,
+  "badge_tx": null,
   "started_at": "2026-03-13T10:30:00Z",
   "error": null
 }
@@ -94,6 +100,16 @@ reserved  → claimed  → completed
 5. Save `lock_args` — you will need it for reserve and complete calls.
 6. If `balance_ckb < min_balance_ckb`, skip to Step 5 (log only). Do NOT claim new jobs.
 7. Write `nerve:auto:last_run` with the current ISO 8601 timestamp.
+8. Check Fiber node readiness:
+   ```
+   fiber-pay node ready --json
+   ```
+   If not ready, log a warning but continue — Fiber is optional for non-payment jobs.
+9. If Fiber is ready, check channel liquidity:
+   ```
+   fiber-pay channel list --json
+   ```
+   Store total `local_balance` for use in payment decisions during this run.
 
 ## Step 2 — Resume In-Flight Jobs
 
@@ -136,7 +152,7 @@ Based on the current stage:
    Poll every 5 seconds, up to 20 times. If not committed, set stage to `failed` with error `"claim tx not confirmed"`.
 
 **If stage is `claimed`:**
-1. Execute task. Currently simulated — no actual work is performed. (Future: dispatch to a task executor based on `capability_hash`.)
+1. Execute task (same as Step 4c): reason through the task, produce a result string, compute `result_hash`.
 2. Complete the job:
    ```
    POST http://localhost:8080/tx/build-and-broadcast
@@ -144,13 +160,15 @@ Based on the current stage:
      "intent": "complete_job",
      "job_tx_hash": "<claim_tx>",
      "job_index": 0,
-     "worker_lock_args": "<lock_args from Step 1>"
+     "worker_lock_args": "<lock_args from Step 1>",
+     "result_hash": "<result_hash>"
    }
    ```
 3. If successful, extract `tx_hash` from the response.
-4. Update the record: set `stage` to `completed`, set `complete_tx` to the new tx_hash.
+4. Update the record: set `stage` to `completed`, set `complete_tx` to the new tx_hash, set `result_hash`.
 5. Write updated `nerve:auto:inflight` to Memory immediately.
 6. Wait for TX confirmation. If not committed, set stage to `failed` with error `"complete tx not confirmed"`.
+7. If confirmed, attempt to mint a PoP badge (same as Step 4e). Badge failure is non-fatal.
 
 ### 2c. On any error during advancement
 
@@ -206,7 +224,11 @@ For each job in the response, apply these filters in order:
 1. **Already in-flight?** Skip if `job_outpoint` matches any record in `nerve:auto:inflight`.
 2. **Reward too high?** Skip if `reward_ckb > max_reward_ckb`.
 3. **Reward too low?** Skip if `reward_ckb < min_reward_ckb`.
-4. **Capability match?** The zero hash (`0x000...000`, 64 zeros) means "any agent". If `capability_hashes` is empty, only accept zero-hash jobs. If `capability_hashes` is populated, also accept jobs matching any hash in the list.
+4. **Capability match?** The zero hash (`0x000...000`, 64 zeros) means "any agent". If `capability_hashes` is empty, only accept zero-hash jobs. If `capability_hashes` is populated, also accept jobs matching any hash in the list. **Additionally**, if a job has a non-zero `capability_hash`, verify the agent holds a matching capability NFT by calling:
+   ```
+   GET http://localhost:8081/agents/<lock_args>/capabilities
+   ```
+   Skip the job if no matching `capability_hash` is found in the response. Cache this result for the duration of the run to avoid repeated calls.
 5. **TTL check?** Skip if `ttl_block_height - current_block_number < 50`. The job expires too soon.
 
 ### 3d. Select jobs
@@ -254,11 +276,28 @@ If successful:
 2. Write updated `nerve:auto:inflight` to Memory.
 3. Wait for TX confirmation.
 
-### 4c. Execute task (simulated)
+### 4c. Execute task
 
-Currently a no-op. The autonomous worker immediately proceeds to completion.
+You ARE the task executor. Reason through the task based on the job's `capability_hash`:
 
-Future: this step will dispatch to a task executor script based on the job's `capability_hash`. The executor returns a result hash that gets included in the completion transaction.
+1. If `capability_hash` is the zero hash (`0x000...000`), produce a generic completion result: `"NERVE autonomous agent completed generic task at <ISO timestamp>"`.
+2. If `capability_hash` matches a known capability (e.g., from `nerve:auto:config.capability_hashes`), produce a result string describing what was done.
+3. If `capability_hash` matches a service-payment capability:
+   a. Read `nerve:service:config` from Memory for service details and supported services.
+   b. Ensure Fiber node is ready (`fiber-pay node ready --json`). If not ready, mark the job as `failed` with error `"Fiber node not ready for service payment"`.
+   c. Ensure Fiber channel to payment hub has sufficient liquidity. If not, attempt to open a channel:
+      ```
+      fiber-pay channel open --peer <payment_hub_peer> --funding <funding_ckb> --json
+      ```
+   d. Execute the service-specific payment via fiber-pay CLI.
+   e. Generate proof of payment (receipt ID, confirmation, etc.) as the result string.
+
+Compute the `result_hash` by hashing the result string:
+```
+echo -n "<result string>" | sha256sum | awk '{print "0x"$1}'
+```
+
+Update the in-flight record: set `result_hash` to the computed hash. Write to Memory immediately.
 
 ### 4d. Complete
 
@@ -268,7 +307,8 @@ POST http://localhost:8080/tx/build-and-broadcast
   "intent": "complete_job",
   "job_tx_hash": "<claim_tx>",
   "job_index": 0,
-  "worker_lock_args": "<lock_args from Step 1>"
+  "worker_lock_args": "<lock_args from Step 1>",
+  "result_hash": "<result_hash from Step 4c>"
 }
 ```
 
@@ -276,6 +316,24 @@ If successful:
 1. Update the record: `stage: "completed"`, `complete_tx: tx_hash`.
 2. Write updated `nerve:auto:inflight` to Memory.
 3. Wait for TX confirmation.
+
+### 4e. Mint PoP badge
+
+After the completion TX is confirmed, mint a Proof of Participation badge:
+
+```
+POST http://localhost:8080/tx/build-and-broadcast
+{
+  "intent": "mint_badge",
+  "job_tx_hash": "<original job outpoint tx_hash>",
+  "job_index": <original job outpoint index>,
+  "worker_lock_args": "<lock_args from Step 1>",
+  "result_hash": "<result_hash from Step 4c>",
+  "completed_at_tx": "<complete_tx from Step 4d>"
+}
+```
+
+If successful: update the record `badge_tx` with the new tx_hash. Badge minting failure is **non-fatal** — log the error but do NOT mark the job as failed. The job was already completed successfully.
 
 ## Step 5 — Log and Report
 
@@ -291,9 +349,9 @@ Write both `nerve:auto:inflight` and `nerve:auto:log` to Memory.
 
 ### 5b. Update stats
 
-Read `nerve:auto:stats` from Memory (default: `{ "jobs_completed": 0, "jobs_failed": 0, "total_reward_earned_ckb": 0 }`).
+Read `nerve:auto:stats` from Memory (default: `{ "jobs_completed": 0, "jobs_failed": 0, "total_reward_earned_ckb": 0, "total_badges_earned": 0 }`).
 
-For each newly completed record: increment `jobs_completed` and add `reward_ckb` to `total_reward_earned_ckb`.
+For each newly completed record: increment `jobs_completed` and add `reward_ckb` to `total_reward_earned_ckb`. If `badge_tx` is non-null, increment `total_badges_earned`.
 For each newly failed record: increment `jobs_failed`.
 
 Write `nerve:auto:stats` to Memory.

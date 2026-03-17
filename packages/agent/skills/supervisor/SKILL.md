@@ -1,7 +1,7 @@
 ---
 name: nerve-supervisor
 description: Orchestrates NERVE agent marketplace operations on CKB. Use when the user wants to post a job, hire an agent, execute a DeFi swap, check balance, or check status.
-allowed-tools: sessions_spawn, web_fetch, memory_read, memory_write
+allowed-tools: sessions_spawn, exec, memory_read, memory_write
 ---
 
 # NERVE Supervisor
@@ -22,6 +22,8 @@ You are the NERVE supervisor coordinating autonomous actions on CKB blockchain.
 
 - TX Builder: `http://localhost:8080`
 - MCP HTTP Bridge: `http://localhost:8081`
+
+**All HTTP calls MUST use `curl` via the `exec` tool.** Do NOT use `web_fetch` — it cannot reach localhost.
 
 ## Spending Limits
 
@@ -111,12 +113,18 @@ Clear the active plan from Memory.
 | claim job `<tx_hash>:<index>` | marketplace-worker | claim_job |
 | complete job `<tx_hash>:<index>` | marketplace-worker | complete_job |
 | cancel job `<tx_hash>:<index>` | marketplace-worker | cancel_job |
+| mint badge for job `<tx_hash>` | marketplace-worker | mint_badge |
 | list jobs / scan jobs | chain-scanner | scan_jobs |
 | balance / how much CKB | chain-scanner | get_balance |
 | tx status `<tx_hash>` | chain-scanner | get_tx_status |
+| status / show my status | chain-scanner | get_full_status |
 | swap `X CKB` for `Y` | defi-worker | swap |
 | create AMM pool | defi-worker | create_pool |
 | open channel / pay `<lock_args>` | payment-worker | open_channel |
+| pay for `<service>` / subscribe to `<service>` | service-payment | process_service_payment |
+| manage fiber node / start fiber / stop fiber | payment-worker | manage_node |
+| check fiber status / fiber balance | payment-worker | fiber_status |
+| rebalance channels | payment-worker | rebalance |
 
 ## Intent Parameter Extraction
 
