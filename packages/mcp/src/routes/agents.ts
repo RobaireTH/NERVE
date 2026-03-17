@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import blake2b from 'blake2b';
 import { getCellsByScript, Script } from '../ckb.js';
 
 const router = Router();
@@ -62,25 +63,45 @@ interface ReputationInfo {
 	jobs_abandoned: number;
 	pending_type: number;
 	pending_expires_at: string;
+	version: number;
+	proof_root?: string;
+	pending_settlement_hash?: string;
 }
 
 function parseReputationCell(outputData: string): ReputationInfo | null {
 	if (!outputData || outputData === '0x' || outputData.length < 2 + 92) return null;
 	const raw = Buffer.from(outputData.replace('0x', ''), 'hex');
 	if (raw.length < 46) return null;
-	if (raw[0] !== 0) return null;
+	const version = raw[0];
+	if (version > 1) return null;
 	const pendingType = raw[1];
 	const completed = raw.readBigUInt64LE(2);
 	const abandoned = raw.readBigUInt64LE(10);
 	const expiresAt = raw.readBigUInt64LE(18);
 	const agentLockArgs = '0x' + raw.subarray(26, 46).toString('hex');
-	return {
+	const info: ReputationInfo = {
 		agent_lock_args: agentLockArgs,
 		jobs_completed: Number(completed),
 		jobs_abandoned: Number(abandoned),
 		pending_type: pendingType,
 		pending_expires_at: expiresAt.toString(),
+		version,
 	};
+	// V1: parse proof_root and pending_settlement_hash.
+	if (version >= 1 && raw.length >= 110) {
+		info.proof_root = '0x' + raw.subarray(46, 78).toString('hex');
+		info.pending_settlement_hash = '0x' + raw.subarray(78, 110).toString('hex');
+	}
+	return info;
+}
+
+// Compute blake2b with CKB personalization ("ckb-default-hash").
+function ckbBlake2b(data: Uint8Array): Buffer {
+	const personal = Buffer.alloc(16);
+	personal.write('ckb-default-hash');
+	const h = blake2b(32, undefined, undefined, personal);
+	h.update(data);
+	return Buffer.from(h.digest());
 }
 
 // GET /agents/:lock_args — look up agent identity cell for a given lock_args.
@@ -219,12 +240,83 @@ router.get('/:lock_args/capabilities', async (req, res) => {
 			})
 			.map((c) => {
 				const raw = Buffer.from((c.output_data ?? '0x').replace('0x', ''), 'hex');
-				return {
+				const proofType = raw[1];
+				const entry: Record<string, unknown> = {
 					out_point: c.out_point,
 					capability_hash: '0x' + raw.subarray(22, 54).toString('hex'),
+					proof_type: proofType,
 				};
+				// proof_type=1: reputation-chain-backed with 64-byte proof data.
+				if (proofType === 1 && raw.length >= 118) {
+					entry.reputation_proof_root = '0x' + raw.subarray(54, 86).toString('hex');
+					entry.settlement_hash = '0x' + raw.subarray(86, 118).toString('hex');
+				}
+				return entry;
 			});
 		res.json({ capabilities, count: capabilities.length });
+	} catch (e) {
+		console.error('agents route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
+	}
+});
+
+// GET /agents/:lock_args/reputation/verify — verify settlement hashes against on-chain proof_root.
+router.get('/:lock_args/reputation/verify', async (req, res) => {
+	if (!REP_TYPE_CODE_HASH) {
+		res.status(503).json({ error: 'REPUTATION_TYPE_CODE_HASH not configured' });
+		return;
+	}
+
+	const { lock_args } = req.params;
+	const hashesParam = req.query.settlement_hashes as string;
+	if (!hashesParam) {
+		res.status(400).json({ error: 'settlement_hashes query parameter required (comma-separated 0x hex)' });
+		return;
+	}
+
+	const script: Script = {
+		code_hash: REP_TYPE_CODE_HASH,
+		hash_type: 'data1',
+		args: '0x',
+	};
+
+	try {
+		const result = await getCellsByScript(script, 'type', 200);
+		const match = result.objects.find((c) => {
+			const rep = parseReputationCell(c.output_data);
+			return rep && rep.agent_lock_args.toLowerCase() === lock_args.toLowerCase();
+		});
+		if (!match) {
+			res.status(404).json({ error: 'no reputation cell found for this agent' });
+			return;
+		}
+		const rep = parseReputationCell(match.output_data);
+		if (!rep || rep.version < 1 || !rep.proof_root) {
+			res.status(422).json({ error: 'reputation cell is not V1 (no proof_root)' });
+			return;
+		}
+
+		// Parse settlement hashes.
+		const hashes = hashesParam.split(',').map((h) => h.trim());
+		const hashBuffers = hashes.map((h) => Buffer.from(h.replace('0x', ''), 'hex'));
+
+		// Replay the hash chain from genesis (all zeros).
+		let root = Buffer.alloc(32);
+		for (const sh of hashBuffers) {
+			const preimage = Buffer.concat([root, sh]);
+			root = ckbBlake2b(preimage);
+		}
+
+		const computedRoot = '0x' + root.toString('hex');
+		const onChainRoot = rep.proof_root;
+		const verified = computedRoot === onChainRoot;
+
+		res.json({
+			verified,
+			chain_length: hashes.length,
+			computed_root: computedRoot,
+			on_chain_root: onChainRoot,
+		});
 	} catch (e) {
 		console.error('agents route error:', e);
 		res.status(502).json({ error: 'upstream request failed' });
