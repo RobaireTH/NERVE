@@ -82,7 +82,16 @@ WORKER_REP_TX=$(post_tx "$WORKER_URL" '{"intent":"create_reputation"}') \
 ok "Worker reputation: $WORKER_REP_TX:0"
 wait_tx
 
-# ── Step 5: Create mock AMM pool ─────────────────────────────────────────────
+# ── Step 5.5: Spawn sub-agent under poster ───────────────────────────────────
+
+step "Step 5.5: Spawning sub-agent under poster (10% revenue share)"
+SUB_AGENT_TX=$(post_tx "$POSTER_URL" \
+	'{"intent":"spawn_sub_agent","spending_limit_ckb":10,"daily_limit_ckb":100,"revenue_share_bps":1000}') \
+	|| fail "poster spawn_sub_agent failed"
+ok "Sub-agent identity: $SUB_AGENT_TX:0"
+wait_tx
+
+# ── Step 6: Create mock AMM pool ─────────────────────────────────────────────
 
 step "Step 6: Creating mock AMM pool (1000 CKB / 1000000 tokens)"
 POOL_TX=$(post_tx "$POSTER_URL" \
@@ -176,6 +185,7 @@ echo "  Poster identity: $POSTER_SPAWN_TX:0"
 echo "  Worker identity: $WORKER_SPAWN_TX:0"
 echo "  Poster rep:      $POSTER_REP_TX:0"
 echo "  Worker rep:      $WORKER_REP_TX:0"
+echo "  Sub-agent:       $SUB_AGENT_TX:0 (10% rev share)"
 echo "  AMM pool:        $POOL_TX:0"
 echo "  Capability NFT:  $CAP_TX:0"
 echo "  Fiber Network:   $FIBER_STATUS"
