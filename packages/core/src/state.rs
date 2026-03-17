@@ -1,7 +1,11 @@
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use blake2b_rs::Blake2bBuilder;
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
+use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 
 use crate::{ckb_client::CkbClient, errors::TxBuildError};
 
@@ -16,6 +20,16 @@ pub const SECP256K1_HASH_TYPE: &str = "type";
 pub const SECP256K1_DEP_TX_HASH: &str =
 	"0xf8de3bb47d055cdf460d93a2a6e1b05f7432f9777c8c474abf4eec1d4aee5d37";
 
+/// Persisted sub-agent key material and metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubAgentInfo {
+	pub private_key_hex: String,
+	pub lock_args: String,
+	pub parent_lock_args: String,
+	pub revenue_share_bps: u16,
+	pub identity_outpoint: Option<String>,
+}
+
 #[derive(Clone)]
 pub struct AppState {
 	pub ckb: Arc<CkbClient>,
@@ -25,6 +39,10 @@ pub struct AppState {
 	pub lock_args: String,
 	/// Maximum CKB that a single transaction may transfer, in shannons.
 	pub spending_limit_shannons: u64,
+	/// Managed sub-agent keys, keyed by lock_args.
+	pub sub_agents: Arc<RwLock<HashMap<String, SubAgentInfo>>>,
+	/// Path to the sub-agent key store on disk.
+	pub sub_agent_store_path: PathBuf,
 }
 
 impl AppState {
@@ -48,13 +66,86 @@ impl AppState {
 
 		let lock_args = derive_lock_args(&private_key)?;
 
+		let sub_agent_store_path = std::env::var("SUB_AGENT_STORE_PATH")
+			.map(PathBuf::from)
+			.unwrap_or_else(|_| {
+				dirs_or_default().join(".nerve").join("sub_agents.json")
+			});
+
+		let sub_agents = load_sub_agents(&sub_agent_store_path);
+
 		Ok(Self {
 			ckb: Arc::new(CkbClient::new(rpc_url, indexer_url)),
 			private_key,
 			lock_args,
 			spending_limit_shannons,
+			sub_agents: Arc::new(RwLock::new(sub_agents)),
+			sub_agent_store_path,
 		})
 	}
+
+	/// Returns the private key bytes for a given lock_args.
+	/// Checks the primary key first, then sub-agents.
+	#[allow(dead_code)]
+	pub async fn get_private_key_for(&self, lock_args: &str) -> Result<Vec<u8>, TxBuildError> {
+		if lock_args == self.lock_args {
+			return Ok(self.private_key.clone());
+		}
+
+		let agents = self.sub_agents.read().await;
+		if let Some(info) = agents.get(lock_args) {
+			let key = hex::decode(info.private_key_hex.trim_start_matches("0x"))
+				.map_err(|e| TxBuildError::KeyStoreError(format!("bad sub-agent key hex: {e}")))?;
+			return Ok(key);
+		}
+
+		Err(TxBuildError::KeyStoreError(format!(
+			"no private key found for lock_args {lock_args}"
+		)))
+	}
+
+	/// Registers a new sub-agent and persists to disk.
+	pub async fn register_sub_agent(&self, info: SubAgentInfo) -> Result<(), TxBuildError> {
+		let lock_args = info.lock_args.clone();
+		{
+			let mut agents = self.sub_agents.write().await;
+			agents.insert(lock_args, info);
+			save_sub_agents(&self.sub_agent_store_path, &agents)?;
+		}
+		Ok(())
+	}
+}
+
+/// Returns the user's home directory, or /tmp as fallback.
+fn dirs_or_default() -> PathBuf {
+	std::env::var("HOME")
+		.map(PathBuf::from)
+		.unwrap_or_else(|_| PathBuf::from("/tmp"))
+}
+
+/// Loads sub-agents from a JSON file on disk. Returns an empty map if the file doesn't exist.
+fn load_sub_agents(path: &PathBuf) -> HashMap<String, SubAgentInfo> {
+	let Ok(content) = std::fs::read_to_string(path) else {
+		return HashMap::new();
+	};
+	serde_json::from_str(&content).unwrap_or_default()
+}
+
+/// Saves sub-agents to a JSON file on disk.
+fn save_sub_agents(
+	path: &PathBuf,
+	agents: &HashMap<String, SubAgentInfo>,
+) -> Result<(), TxBuildError> {
+	if let Some(parent) = path.parent() {
+		std::fs::create_dir_all(parent).map_err(|e| {
+			TxBuildError::KeyStoreError(format!("cannot create dir {}: {e}", parent.display()))
+		})?;
+	}
+	let json = serde_json::to_string_pretty(agents)
+		.map_err(|e| TxBuildError::KeyStoreError(format!("serialize error: {e}")))?;
+	std::fs::write(path, json)
+		.map_err(|e| TxBuildError::KeyStoreError(format!("write error: {e}")))?;
+	Ok(())
 }
 
 /// Derives the secp256k1-blake2b lock args (blake160 of compressed pubkey).
