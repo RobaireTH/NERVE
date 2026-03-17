@@ -8,6 +8,8 @@
 		"dev": "ts-node src/index.ts"
 	},
 	"dependencies": {
+		"@fiber-pay/cli": "^0.1.0",
+		"@fiber-pay/sdk": "^0.1.0",
 		"express": "^4.18.0"
 	},
 	"devDependencies": {

@@ -6,8 +6,12 @@ import {
 	listChannels,
 	shutdownChannel,
 	newInvoice,
+	newHoldInvoice,
+	settleInvoice,
+	getInvoice,
 	sendPayment,
 	shannonsToNumber,
+	isNodeReady,
 } from '../fiber.js';
 
 const router = Router();
@@ -123,6 +127,68 @@ router.post('/invoice', async (req, res) => {
 	}
 });
 
+// POST /fiber/hold-invoice — Create a hold invoice (escrow) with a pre-determined payment_hash.
+// Body: { "amount_ckb": 5, "payment_hash": "0x...", "description": "escrow for job X" }
+router.post('/hold-invoice', async (req, res) => {
+	const { amount_ckb, payment_hash, description = '' } = req.body as {
+		amount_ckb?: number;
+		payment_hash?: string;
+		description?: string;
+	};
+	if (amount_ckb === undefined || !payment_hash) {
+		res.status(400).json({ error: 'amount_ckb and payment_hash are required' });
+		return;
+	}
+	try {
+		const invoice = await newHoldInvoice(amount_ckb, payment_hash, description);
+		res.json({
+			invoice_address: invoice.invoice_address,
+			amount_ckb,
+			payment_hash: invoice.invoice.data.payment_hash,
+		});
+	} catch (e) {
+		console.error('fiber route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
+	}
+});
+
+// POST /fiber/settle — Settle a hold invoice by revealing the preimage.
+// Body: { "payment_hash": "0x...", "preimage": "0x..." }
+router.post('/settle', async (req, res) => {
+	const { payment_hash, preimage } = req.body as {
+		payment_hash?: string;
+		preimage?: string;
+	};
+	if (!payment_hash || !preimage) {
+		res.status(400).json({ error: 'payment_hash and preimage are required' });
+		return;
+	}
+	try {
+		await settleInvoice(payment_hash, preimage);
+		res.json({ ok: true, payment_hash });
+	} catch (e) {
+		console.error('fiber route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
+	}
+});
+
+// GET /fiber/invoice/:payment_hash — Get invoice status by payment_hash.
+router.get('/invoice/:payment_hash', async (req, res) => {
+	const { payment_hash } = req.params;
+	try {
+		const invoice = await getInvoice(payment_hash);
+		res.json({
+			invoice_address: invoice.invoice_address,
+			payment_hash,
+			amount: invoice.invoice.amount,
+			currency: invoice.invoice.currency,
+		});
+	} catch (e) {
+		console.error('fiber route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
+	}
+});
+
 // POST /fiber/pay — Send a payment by invoice or keysend.
 //
 // Option A — Pay by invoice (recommended):
@@ -155,6 +221,17 @@ router.post('/pay', async (req, res) => {
 	} catch (e) {
 		console.error('fiber route error:', e);
 		res.status(502).json({ error: 'upstream request failed' });
+	}
+});
+
+// GET /fiber/ready — Quick readiness check for the Fiber payment layer.
+// Returns { ready: true/false } so agents can preflight before payment operations.
+router.get('/ready', async (_req, res) => {
+	try {
+		const ready = await isNodeReady();
+		res.json({ ready });
+	} catch {
+		res.json({ ready: false });
 	}
 });
 

@@ -1,39 +1,28 @@
-// Fiber Network JSON-RPC client.
+// Fiber Network client — backed by @fiber-pay/sdk FiberRpcClient.
 //
-// The Fiber node exposes a namespaced JSON-RPC API:
-//   info_node_info, peer_connect_peer, channel_open_channel,
-//   channel_list_channels, channel_shutdown_channel,
-//   invoice_new_invoice, payment_send_payment
-//
-// Amounts are in shannons (u128). All hex values are 0x-prefixed.
+// Wraps the SDK's typed RPC client and re-exports the same function signatures
+// used by routes/fiber.ts for backward compatibility. Gains: proper error types
+// (FiberRpcError), typed params/results, wait helpers.
+
+import { FiberRpcClient, FiberRpcError, ckbToShannons as sdkCkbToShannons } from '@fiber-pay/sdk';
 
 const FIBER_RPC_URL = process.env.FIBER_RPC_URL ?? 'http://localhost:8227';
 
-let _id = 1;
+const client = new FiberRpcClient(FIBER_RPC_URL);
 
-async function fiberRpc<T>(method: string, params: Record<string, unknown>): Promise<T> {
-	const res = await fetch(FIBER_RPC_URL, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({ jsonrpc: '2.0', id: _id++, method, params }),
-	});
-	const json = (await res.json()) as { result?: T; error?: { message: string } };
-	if (json.error) throw new Error(`Fiber RPC ${method}: ${json.error.message}`);
-	if (json.result === undefined) throw new Error(`Fiber RPC ${method}: empty result`);
-	return json.result;
-}
+// ─── Re-exported utilities ──────────────────────────────────────────────────
 
 export const CKB_TO_SHANNONS = 100_000_000n;
 
 export function ckbToShannons(ckb: number): bigint {
-	return BigInt(Math.round(ckb * 1e8));
+	return sdkCkbToShannons(ckb);
 }
 
 export function shannonsToNumber(shannons: bigint | number | string): number {
 	return Number(BigInt(shannons)) / 1e8;
 }
 
-// ─── Types ─────────────────────────────────────────────────────────────────────
+// ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface FiberNodeInfo {
 	version: string;
@@ -69,14 +58,30 @@ export interface FiberPaymentResult {
 	fee: number;
 }
 
-// ─── API methods ───────────────────────────────────────────────────────────────
+export interface FiberHoldInvoice {
+	invoice_address: string;
+	invoice: {
+		currency: string;
+		amount: number;
+		data: { payment_hash: string };
+	};
+}
+
+export { FiberRpcError };
+
+// ─── API methods ────────────────────────────────────────────────────────────
 
 export async function nodeInfo(): Promise<FiberNodeInfo> {
-	return fiberRpc<FiberNodeInfo>('info_node_info', {});
+	try {
+		return await client.call<FiberNodeInfo>('info_node_info', {});
+	} catch (e) {
+		if (e instanceof FiberRpcError) throw e;
+		throw new Error(`Fiber RPC info_node_info: ${(e as Error).message}`);
+	}
 }
 
 export async function connectPeer(peerAddress: string, save = true): Promise<void> {
-	await fiberRpc('peer_connect_peer', { address: peerAddress, save });
+	await client.call('peer_connect_peer', { address: peerAddress, save });
 }
 
 export async function openChannel(
@@ -84,14 +89,14 @@ export async function openChannel(
 	fundingCkb: number,
 	isPublic = true,
 ): Promise<{ temporary_channel_id: string }> {
-	const fundingAmount = ckbToShannons(fundingCkb);
-	return fiberRpc('channel_open_channel', {
+	const fundingAmount = '0x' + ckbToShannons(fundingCkb).toString(16);
+	return client.call('channel_open_channel', {
 		peer_id: peerId,
-		funding_amount: Number(fundingAmount),
+		funding_amount: fundingAmount,
 		public: isPublic,
 		funding_udt_type_script: null,
 		shutdown_script: null,
-		tlc_expiry_delta: 14_400_000,   // 4 hours in ms
+		tlc_expiry_delta: 14_400_000,
 		tlc_min_value: 0,
 		tlc_fee_proportional_millionths: 1000,
 		max_tlc_number_in_flight: 125,
@@ -99,7 +104,7 @@ export async function openChannel(
 }
 
 export async function listChannels(peerId?: string): Promise<{ channels: FiberChannel[] }> {
-	return fiberRpc('channel_list_channels', {
+	return client.call('channel_list_channels', {
 		peer_id: peerId ?? null,
 		include_closed: false,
 	});
@@ -109,7 +114,7 @@ export async function shutdownChannel(
 	channelId: string,
 	force = false,
 ): Promise<void> {
-	await fiberRpc('channel_shutdown_channel', {
+	await client.call('channel_shutdown_channel', {
 		channel_id: channelId,
 		close_script: null,
 		fee_rate: 1000,
@@ -122,15 +127,57 @@ export async function newInvoice(
 	description: string,
 	expirySeconds = 3600,
 ): Promise<FiberInvoice> {
-	const currency = process.env.FIBER_CURRENCY ?? 'Fibt'; // Fibt = testnet
-	return fiberRpc('invoice_new_invoice', {
-		amount: Number(ckbToShannons(amountCkb)),
+	const currency = process.env.FIBER_CURRENCY ?? 'Fibt';
+	return client.call('invoice_new_invoice', {
+		amount: '0x' + ckbToShannons(amountCkb).toString(16),
 		description,
 		currency,
 		payment_preimage: null,
 		payment_hash: null,
 		expiry: expirySeconds,
 		final_expiry_delta: 86_400_000,
+	});
+}
+
+// ─── Hold invoice methods ───────────────────────────────────────────────────
+
+/// Creates a hold invoice with a pre-determined payment_hash.
+/// The invoice cannot be settled until the preimage is revealed via settleInvoice().
+export async function newHoldInvoice(
+	amountCkb: number,
+	paymentHash: string,
+	description: string,
+	expirySeconds = 3600,
+): Promise<FiberHoldInvoice> {
+	const currency = process.env.FIBER_CURRENCY ?? 'Fibt';
+	return client.call('invoice_new_invoice', {
+		amount: '0x' + ckbToShannons(amountCkb).toString(16),
+		description,
+		currency,
+		payment_preimage: null,
+		payment_hash: paymentHash,
+		expiry: expirySeconds,
+		final_expiry_delta: 86_400_000,
+	});
+}
+
+/// Settles a hold invoice by revealing the preimage for the given payment_hash.
+export async function settleInvoice(
+	paymentHash: string,
+	preimage: string,
+): Promise<void> {
+	await client.call('invoice_settle_invoice', {
+		payment_hash: paymentHash,
+		payment_preimage: preimage,
+	});
+}
+
+/// Gets the status of an invoice by payment_hash.
+export async function getInvoice(
+	paymentHash: string,
+): Promise<FiberHoldInvoice> {
+	return client.call('invoice_get_invoice', {
+		payment_hash: paymentHash,
 	});
 }
 
@@ -143,7 +190,7 @@ export async function sendPayment(opts: {
 }): Promise<FiberPaymentResult> {
 	const params: Record<string, unknown> = {
 		timeout: 300,
-		max_fee_amount: Number(ckbToShannons(0.01)), // 0.01 CKB max fee
+		max_fee_amount: '0x' + ckbToShannons(0.01).toString(16),
 		max_parts: 1,
 		keysend: !opts.invoice,
 		dry_run: false,
@@ -157,8 +204,20 @@ export async function sendPayment(opts: {
 			throw new Error('Either invoice or (targetPubkey + amountCkb) is required');
 		}
 		params.target_pubkey = opts.targetPubkey;
-		params.amount = Number(ckbToShannons(opts.amountCkb));
+		params.amount = '0x' + ckbToShannons(opts.amountCkb).toString(16);
 	}
 
-	return fiberRpc('payment_send_payment', params);
+	return client.call('payment_send_payment', params);
+}
+
+// ─── fiber-pay enhanced helpers ─────────────────────────────────────────────
+
+/// Check if the Fiber node is reachable and ready to process payments.
+export async function isNodeReady(): Promise<boolean> {
+	try {
+		await client.call('info_node_info', {});
+		return true;
+	} catch {
+		return false;
+	}
 }
