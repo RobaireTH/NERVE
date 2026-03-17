@@ -7,6 +7,7 @@ use crate::{
 		parse_capacity_hex, AppState, SECP256K1_CODE_HASH, SECP256K1_DEP_TX_HASH,
 		SECP256K1_HASH_TYPE,
 	},
+	tx_builder::identity::{decode_identity_data, IdentityData},
 };
 
 use super::molecule::compute_raw_tx_hash;
@@ -359,6 +360,61 @@ pub async fn build_claim_job(
 	sign_and_finalize(state, tx).await
 }
 
+/// Fetches the worker's identity cell and decodes its data.
+/// Returns None if no identity cell is found or the type script env vars are not set.
+async fn fetch_worker_identity(
+	state: &AppState,
+	worker_lock_args: &str,
+) -> Result<Option<IdentityData>, TxBuildError> {
+	let type_code_hash = match std::env::var("AGENT_IDENTITY_TYPE_CODE_HASH") {
+		Ok(v) => v,
+		Err(_) => return Ok(None),
+	};
+
+	let type_script = Script {
+		code_hash: type_code_hash,
+		hash_type: "data1".into(),
+		args: "0x".into(),
+	};
+
+	let cells = state.ckb.get_cells_by_type_script(&type_script, 200).await?;
+
+	let identity_cell = cells
+		.objects
+		.iter()
+		.find(|c| c.output.lock.args.to_lowercase() == worker_lock_args.to_lowercase());
+
+	let Some(cell) = identity_cell else {
+		return Ok(None);
+	};
+
+	// Fetch full cell data via get_live_cell.
+	let live = state
+		.ckb
+		.get_live_cell(&cell.out_point.tx_hash, {
+			u32::from_str_radix(cell.out_point.index.trim_start_matches("0x"), 16).unwrap_or(0)
+		})
+		.await?;
+
+	let data_hex = live
+		.cell
+		.and_then(|c| c.data)
+		.map(|d| d.content)
+		.unwrap_or_else(|| "0x".into());
+
+	let data = hex::decode(data_hex.trim_start_matches("0x"))
+		.map_err(|e| TxBuildError::Rpc(format!("bad identity cell data: {e}")))?;
+
+	if data.len() < 50 {
+		return Ok(None);
+	}
+
+	match decode_identity_data(&data) {
+		Ok(id) => Ok(Some(id)),
+		Err(_) => Ok(None),
+	}
+}
+
 /// complete_job — destroys the job cell, routes reward to worker and overhead back to poster.
 ///
 /// When `result_hash` is provided, an additional result memo cell (33 bytes of data) is created
@@ -399,6 +455,10 @@ pub async fn build_complete_job(
 		args: worker_lock_args.into(),
 	};
 
+	// Revenue sharing: check if the worker is a v1 sub-agent with a parent.
+	let identity = fetch_worker_identity(state, worker_lock_args).await?;
+	let (worker_amount, parent_share) = compute_revenue_split(reward_shannons, &identity);
+
 	// Fee comes from the overhead reduction (poster_refund > 61 CKB; fee is ~0.01 CKB).
 	let memo_cost = if result_hash.is_some() { RESULT_MEMO_CAPACITY } else { 0 };
 	let poster_refund_after_fee = poster_refund - ESTIMATED_FEE - memo_cost;
@@ -407,12 +467,27 @@ pub async fn build_complete_job(
 	let witnesses = placeholder_witnesses(inputs.len());
 
 	let mut outputs = vec![
-		// Reward to worker.
-		json!({ "capacity": format!("{:#x}", reward_shannons), "lock": worker_lock, "type": null }),
+		// Reward to worker (minus parent share if applicable).
+		json!({ "capacity": format!("{:#x}", worker_amount), "lock": worker_lock, "type": null }),
 		// Overhead refund to poster.
 		json!({ "capacity": format!("{:#x}", poster_refund_after_fee), "lock": our_lock(state), "type": null }),
 	];
 	let mut outputs_data = vec!["0x".to_string(), "0x".to_string()];
+
+	// Revenue share output for parent agent.
+	if let Some((parent_lock_args, parent_amount)) = &parent_share {
+		let parent_lock = Script {
+			code_hash: SECP256K1_CODE_HASH.into(),
+			hash_type: SECP256K1_HASH_TYPE.into(),
+			args: format!("0x{}", hex::encode(parent_lock_args)),
+		};
+		outputs.push(json!({
+			"capacity": format!("{:#x}", parent_amount),
+			"lock": parent_lock,
+			"type": null,
+		}));
+		outputs_data.push("0x".to_string());
+	}
 
 	// Optional result memo cell under the worker's lock.
 	if let Some(hash) = result_hash {
@@ -444,6 +519,50 @@ pub async fn build_complete_job(
 	});
 
 	sign_and_finalize(state, tx).await
+}
+
+/// Computes the revenue split between worker and parent.
+/// Returns (worker_amount, Option<(parent_lock_args, parent_amount)>).
+///
+/// If the worker has a v1 identity with non-zero parent_lock_args and revenue_share_bps > 0,
+/// the parent gets a share of the reward. If either the parent's or worker's share would be
+/// below MIN_PAYMENT_CELL (61 CKB), the worker gets 100% (best-effort split).
+fn compute_revenue_split(
+	reward_shannons: u64,
+	identity: &Option<IdentityData>,
+) -> (u64, Option<([u8; 20], u64)>) {
+	let Some(id) = identity else {
+		return (reward_shannons, None);
+	};
+
+	// Only v1 identities have delegation fields.
+	if id.version == 0 {
+		return (reward_shannons, None);
+	}
+
+	let Some(parent_lock_args) = id.parent_lock_args else {
+		return (reward_shannons, None);
+	};
+
+	// All-zero parent means root agent — no revenue sharing.
+	if parent_lock_args == [0u8; 20] {
+		return (reward_shannons, None);
+	}
+
+	let bps = id.revenue_share_bps.unwrap_or(0);
+	if bps == 0 {
+		return (reward_shannons, None);
+	}
+
+	let parent_amount = reward_shannons * bps as u64 / 10000;
+	let worker_amount = reward_shannons - parent_amount;
+
+	// Best-effort: if either share is below minimum cell capacity, give 100% to worker.
+	if parent_amount < MIN_PAYMENT_CELL || worker_amount < MIN_PAYMENT_CELL {
+		return (reward_shannons, None);
+	}
+
+	(worker_amount, Some((parent_lock_args, parent_amount)))
 }
 
 /// cancel_job — destroys the job cell (Expired), returns capacity to poster.
@@ -541,5 +660,98 @@ mod tests {
 		assert_eq!(data.len(), 33);
 		assert_eq!(data[0], 0, "version");
 		assert_eq!(&data[1..33], &hash);
+	}
+
+	#[test]
+	fn revenue_split_no_identity() {
+		let reward = 200 * 100_000_000u64; // 200 CKB
+		let (worker, parent) = compute_revenue_split(reward, &None);
+		assert_eq!(worker, reward);
+		assert!(parent.is_none());
+	}
+
+	#[test]
+	fn revenue_split_v0_identity() {
+		let reward = 200 * 100_000_000u64;
+		let id = IdentityData {
+			version: 0,
+			pubkey: [0xAA; 33],
+			spending_limit_shannons: 100_000_000,
+			daily_limit_shannons: 500_000_000,
+			parent_lock_args: None,
+			revenue_share_bps: None,
+		};
+		let (worker, parent) = compute_revenue_split(reward, &Some(id));
+		assert_eq!(worker, reward);
+		assert!(parent.is_none());
+	}
+
+	#[test]
+	fn revenue_split_v1_with_parent() {
+		let reward = 1000 * 100_000_000u64; // 1000 CKB — large enough for both shares to exceed 61 CKB.
+		let parent_args = [0xCC; 20];
+		let id = IdentityData {
+			version: 1,
+			pubkey: [0xBB; 33],
+			spending_limit_shannons: 100_000_000,
+			daily_limit_shannons: 500_000_000,
+			parent_lock_args: Some(parent_args),
+			revenue_share_bps: Some(1000), // 10%
+		};
+		let (worker, parent) = compute_revenue_split(reward, &Some(id));
+		// 10% of 1000 CKB = 100 CKB parent share, 900 CKB worker share.
+		assert_eq!(worker, 900 * 100_000_000);
+		let (p_args, p_amount) = parent.unwrap();
+		assert_eq!(p_args, parent_args);
+		assert_eq!(p_amount, 100 * 100_000_000);
+	}
+
+	#[test]
+	fn revenue_split_v1_zero_parent_is_root() {
+		let reward = 200 * 100_000_000u64;
+		let id = IdentityData {
+			version: 1,
+			pubkey: [0xBB; 33],
+			spending_limit_shannons: 100_000_000,
+			daily_limit_shannons: 500_000_000,
+			parent_lock_args: Some([0u8; 20]), // root agent
+			revenue_share_bps: Some(1000),
+		};
+		let (worker, parent) = compute_revenue_split(reward, &Some(id));
+		assert_eq!(worker, reward);
+		assert!(parent.is_none());
+	}
+
+	#[test]
+	fn revenue_split_below_min_cell_gives_worker_100pct() {
+		// Reward of 70 CKB with 10% share = 7 CKB parent share (below 61 CKB minimum).
+		let reward = 70 * 100_000_000u64;
+		let id = IdentityData {
+			version: 1,
+			pubkey: [0xBB; 33],
+			spending_limit_shannons: 100_000_000,
+			daily_limit_shannons: 500_000_000,
+			parent_lock_args: Some([0xCC; 20]),
+			revenue_share_bps: Some(1000), // 10%
+		};
+		let (worker, parent) = compute_revenue_split(reward, &Some(id));
+		assert_eq!(worker, reward);
+		assert!(parent.is_none());
+	}
+
+	#[test]
+	fn revenue_split_zero_bps() {
+		let reward = 200 * 100_000_000u64;
+		let id = IdentityData {
+			version: 1,
+			pubkey: [0xBB; 33],
+			spending_limit_shannons: 100_000_000,
+			daily_limit_shannons: 500_000_000,
+			parent_lock_args: Some([0xCC; 20]),
+			revenue_share_bps: Some(0),
+		};
+		let (worker, parent) = compute_revenue_split(reward, &Some(id));
+		assert_eq!(worker, reward);
+		assert!(parent.is_none());
 	}
 }
