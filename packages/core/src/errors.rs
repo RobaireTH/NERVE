@@ -38,6 +38,12 @@ pub enum TxBuildError {
 
 	#[error("unknown intent: {0}")]
 	UnknownIntent(String),
+
+	#[error("sub-agent error: {0}")]
+	SubAgentError(String),
+
+	#[error("key store error: {0}")]
+	KeyStoreError(String),
 }
 
 impl IntoResponse for TxBuildError {
@@ -54,6 +60,8 @@ impl IntoResponse for TxBuildError {
 			TxBuildError::Signing(_) => (StatusCode::INTERNAL_SERVER_ERROR, "signing_error"),
 			TxBuildError::InvalidAddress(_) => (StatusCode::BAD_REQUEST, "invalid_address"),
 			TxBuildError::UnknownIntent(_) => (StatusCode::BAD_REQUEST, "unknown_intent"),
+			TxBuildError::SubAgentError(_) => (StatusCode::BAD_REQUEST, "sub_agent_error"),
+			TxBuildError::KeyStoreError(_) => (StatusCode::INTERNAL_SERVER_ERROR, "key_store_error"),
 		};
 
 		(status, Json(json!({ "error": code, "message": self.to_string() }))).into_response()
