@@ -5,13 +5,16 @@ use crate::{errors::TxBuildError, state::ckb_to_shannons, AppState};
 
 use super::{
 	badge::build_mint_badge,
-	capability::build_mint_capability,
+	capability::{build_mint_capability, build_mint_capability_v1},
 	identity::{build_spawn_agent, build_spawn_sub_agent},
 	job::{
 		build_cancel_job, build_claim_job, build_complete_job, build_post_job,
 		build_reserve_job, parse_hash_32, parse_lock_args_20,
 	},
-	reputation::{build_create_reputation, build_finalize_reputation, build_propose_reputation},
+	reputation::{
+		build_create_reputation, build_create_reputation_v1, build_finalize_reputation,
+		build_migrate_reputation_v1, build_propose_reputation, compute_settlement_hash,
+	},
 	swap::{build_create_pool, build_swap},
 	transfer::build_transfer,
 };
@@ -116,6 +119,43 @@ pub enum BuildRequest {
 	FinalizeReputation {
 		rep_tx_hash: String,
 		rep_index: u32,
+	},
+	/// Create a new V1 reputation cell with blake2b hash-chain provability.
+	CreateReputationV1,
+	/// Migrate a V0 Idle reputation cell to V1.
+	MigrateReputationV1 {
+		rep_tx_hash: String,
+		rep_index: u32,
+	},
+	/// Propose a V1 reputation update with settlement hash evidence.
+	ProposeReputationV1 {
+		rep_tx_hash: String,
+		rep_index: u32,
+		/// 1 = completed, 2 = abandoned.
+		propose_type: u8,
+		/// Dispute window in blocks (default: 100).
+		dispute_window_blocks: Option<u64>,
+		/// Job cell tx_hash for settlement hash computation.
+		job_tx_hash: String,
+		/// Job cell output index.
+		job_index: u32,
+		/// Worker's lock_args (0x-prefixed 20-byte hex).
+		worker_lock_args: String,
+		/// Poster's lock_args (0x-prefixed 20-byte hex).
+		poster_lock_args: String,
+		/// Reward amount in shannons.
+		reward_shannons: u64,
+		/// Optional result hash (0x-prefixed 32-byte hex).
+		result_hash: Option<String>,
+	},
+	/// Mint a capability NFT backed by reputation chain evidence.
+	MintCapabilityV1 {
+		/// blake2b-256 hash of the capability type (0x-prefixed hex).
+		capability_hash: String,
+		/// Current proof_root from the agent's reputation cell (0x-prefixed 32-byte hex).
+		reputation_proof_root: String,
+		/// Settlement hash used as evidence (0x-prefixed 32-byte hex).
+		settlement_hash: String,
 	},
 }
 
@@ -303,6 +343,7 @@ pub async fn build_and_sign(
 				rep_index,
 				propose_type,
 				dispute_window_blocks.unwrap_or(100),
+				None,
 			)
 			.await?;
 			Ok(BuildResult { tx_hash, tx, metadata: None })
@@ -311,6 +352,68 @@ pub async fn build_and_sign(
 		BuildRequest::FinalizeReputation { rep_tx_hash, rep_index } => {
 			let (tx, tx_hash) =
 				build_finalize_reputation(state, &rep_tx_hash, rep_index).await?;
+			Ok(BuildResult { tx_hash, tx, metadata: None })
+		}
+
+		BuildRequest::CreateReputationV1 => {
+			let (tx, tx_hash) = build_create_reputation_v1(state).await?;
+			Ok(BuildResult { tx_hash, tx, metadata: None })
+		}
+
+		BuildRequest::MigrateReputationV1 { rep_tx_hash, rep_index } => {
+			let (tx, tx_hash) =
+				build_migrate_reputation_v1(state, &rep_tx_hash, rep_index).await?;
+			Ok(BuildResult { tx_hash, tx, metadata: None })
+		}
+
+		BuildRequest::ProposeReputationV1 {
+			rep_tx_hash,
+			rep_index,
+			propose_type,
+			dispute_window_blocks,
+			job_tx_hash,
+			job_index,
+			worker_lock_args,
+			poster_lock_args,
+			reward_shannons,
+			result_hash,
+		} => {
+			let job_tx = parse_hash_32(&job_tx_hash)?;
+			let worker = parse_lock_args_20(&worker_lock_args)?;
+			let poster = parse_lock_args_20(&poster_lock_args)?;
+			let rh = result_hash.as_deref().map(parse_hash_32).transpose()?;
+
+			let settlement = compute_settlement_hash(
+				&job_tx,
+				job_index,
+				&worker,
+				&poster,
+				reward_shannons,
+				rh.as_ref(),
+			);
+
+			let (tx, tx_hash) = build_propose_reputation(
+				state,
+				&rep_tx_hash,
+				rep_index,
+				propose_type,
+				dispute_window_blocks.unwrap_or(100),
+				Some(settlement),
+			)
+			.await?;
+			Ok(BuildResult { tx_hash, tx, metadata: None })
+		}
+
+		BuildRequest::MintCapabilityV1 {
+			capability_hash,
+			reputation_proof_root,
+			settlement_hash,
+		} => {
+			let cap_hash = parse_hash_32(&capability_hash)?;
+			let proof_root = parse_hash_32(&reputation_proof_root)?;
+			let settlement = parse_hash_32(&settlement_hash)?;
+			let (tx, tx_hash) =
+				build_mint_capability_v1(state, &cap_hash, &proof_root, &settlement).await?;
 			Ok(BuildResult { tx_hash, tx, metadata: None })
 		}
 	}

@@ -115,6 +115,105 @@ fn create_attestation(
 	Ok(signature)
 }
 
+/// Encodes capability NFT cell data for proof_type=1 (reputation-chain-backed).
+///
+/// Layout (118 bytes):
+///   [0]       version = 0
+///   [1]       proof_type = 1
+///   [2..22]   agent_lock_args: [u8; 20]
+///   [22..54]  capability_hash: [u8; 32]
+///   [54..86]  proof_root_snapshot: [u8; 32]
+///   [86..118] settlement_hash: [u8; 32]
+fn encode_capability_data_v1(
+	agent_lock_args: &[u8; 20],
+	capability_hash: &[u8; 32],
+	proof_root: &[u8; 32],
+	settlement_hash: &[u8; 32],
+) -> Vec<u8> {
+	let mut data = Vec::with_capacity(118);
+	data.push(0u8); // version
+	data.push(1u8); // proof_type = 1 (reputation-chain-backed)
+	data.extend_from_slice(agent_lock_args);
+	data.extend_from_slice(capability_hash);
+	data.extend_from_slice(proof_root);
+	data.extend_from_slice(settlement_hash);
+	data
+}
+
+/// Builds a transaction to mint a capability NFT backed by reputation chain evidence.
+pub async fn build_mint_capability_v1(
+	state: &AppState,
+	capability_hash: &[u8; 32],
+	proof_root: &[u8; 32],
+	settlement_hash: &[u8; 32],
+) -> Result<(Value, String), TxBuildError> {
+	let (type_code_hash, dep_tx_hash) = cap_nft_type_env()?;
+	let agent_lock_args = super::job::parse_lock_args_20(&state.lock_args)?;
+
+	let nft_data = encode_capability_data_v1(&agent_lock_args, capability_hash, proof_root, settlement_hash);
+
+	let occupied_bytes = 8 + 53 + 33 + nft_data.len() as u64;
+	let nft_capacity = std::cmp::max(occupied_bytes * 100_000_000, CAP_NFT_CELL_MIN);
+
+	let needed = nft_capacity + ESTIMATED_FEE + MIN_CELL_CAPACITY;
+	let agent_lock = our_lock(state);
+	let cells = state.ckb.get_cells_by_lock(&agent_lock, 200).await?;
+
+	let mut inputs = Vec::new();
+	let mut input_capacity: u64 = 0;
+	for cell in &cells.objects {
+		if cell.output.type_script.is_some() {
+			continue;
+		}
+		let cap = parse_capacity_hex(&cell.output.capacity)?;
+		inputs.push(json!({ "previous_output": cell.out_point, "since": "0x0" }));
+		input_capacity += cap;
+		if input_capacity >= needed {
+			break;
+		}
+	}
+	if input_capacity < needed {
+		return Err(TxBuildError::InsufficientFunds {
+			need: needed as f64 / 1e8,
+			have: input_capacity as f64 / 1e8,
+		});
+	}
+
+	let change_capacity = input_capacity - nft_capacity - ESTIMATED_FEE;
+	let witnesses = placeholder_witnesses(inputs.len());
+
+	let tx = json!({
+		"version": "0x0",
+		"cell_deps": [
+			{ "out_point": { "tx_hash": SECP256K1_DEP_TX_HASH, "index": "0x0" }, "dep_type": "dep_group" },
+			{ "out_point": { "tx_hash": dep_tx_hash, "index": "0x0" }, "dep_type": "code" },
+		],
+		"header_deps": [],
+		"inputs": inputs,
+		"outputs": [
+			{
+				"capacity": format!("{:#x}", nft_capacity),
+				"lock": our_lock(state),
+				"type": { "code_hash": type_code_hash, "hash_type": "data1", "args": "0x" },
+			},
+			{
+				"capacity": format!("{:#x}", change_capacity),
+				"lock": our_lock(state),
+				"type": null,
+			},
+		],
+		"outputs_data": [format!("0x{}", hex::encode(&nft_data)), "0x"],
+		"witnesses": witnesses,
+	});
+
+	let tx_hash = compute_raw_tx_hash(&tx)?;
+	let signature = sign_tx(&tx_hash, &state.private_key, inputs.len())?;
+	let mut tx = tx;
+	inject_witness(&mut tx, &signature);
+
+	Ok((tx, tx_hash))
+}
+
 /// Builds a transaction to mint a capability NFT with a signed attestation proof.
 pub async fn build_mint_capability(
 	state: &AppState,
