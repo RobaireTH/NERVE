@@ -74,11 +74,21 @@ fn validate_creation() -> Result<(), i8> {
 	if data.len() < DATA_MIN { return Err(ERR_INVALID_DATA); }
 	if data[0] != 0 { return Err(ERR_INVALID_DATA); }
 
-	if data[1] != 0 { return Err(ERR_INVALID_PROOF_TYPE); }  // only attestation supported now
+	let proof_type = data[1];
+	if proof_type > 1 { return Err(ERR_INVALID_PROOF_TYPE); }
 
 	if data[2..22].iter().all(|&b| b == 0) { return Err(ERR_ZERO_AGENT); }
 	if data[22..54].iter().all(|&b| b == 0) { return Err(ERR_ZERO_CAP_HASH); }
 	if data.len() <= DATA_MIN { return Err(ERR_EMPTY_PROOF); }
+
+	// proof_type=1 (reputation-chain-backed): proof_data must be exactly 64 bytes
+	// (proof_root_snapshot[32] + settlement_hash[32]), both non-zero.
+	if proof_type == 1 {
+		let proof_data = &data[DATA_MIN..];
+		if proof_data.len() != 64 { return Err(ERR_EMPTY_PROOF); }
+		if proof_data[..32].iter().all(|&b| b == 0) { return Err(ERR_EMPTY_PROOF); }
+		if proof_data[32..].iter().all(|&b| b == 0) { return Err(ERR_EMPTY_PROOF); }
+	}
 
 	Ok(())
 }

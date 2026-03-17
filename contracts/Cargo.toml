@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 ckb-std = { version = "0.16", features = ["type-id"] }
+ckb-hash = { version = "0.119", default-features = false, features = ["ckb-contract"] }
