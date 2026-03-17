@@ -13,8 +13,12 @@ import {
 	shannonsToNumber,
 	isNodeReady,
 } from '../fiber.js';
+import { getCellsByScript, Script } from '../ckb.js';
+import { parseAgentCell } from './agents.js';
 
 const router = Router();
+
+const AGENT_TYPE_CODE_HASH = process.env.AGENT_IDENTITY_TYPE_CODE_HASH ?? '';
 
 // GET /fiber/node — Fiber node info (node_id, addresses, channel count).
 router.get('/node', async (_req, res) => {
@@ -232,6 +236,58 @@ router.get('/ready', async (_req, res) => {
 		res.json({ ready });
 	} catch {
 		res.json({ ready: false });
+	}
+});
+
+// POST /fiber/pay-agent — Look up agent pubkey by lock_args and keysend payment.
+router.post('/pay-agent', async (req, res) => {
+	const { lock_args, amount_ckb, description } = req.body as {
+		lock_args?: string;
+		amount_ckb?: number;
+		description?: string;
+	};
+
+	if (!lock_args || amount_ckb === undefined) {
+		res.status(400).json({ error: 'lock_args and amount_ckb are required' });
+		return;
+	}
+	if (!AGENT_TYPE_CODE_HASH) {
+		res.status(503).json({ error: 'AGENT_IDENTITY_TYPE_CODE_HASH not configured' });
+		return;
+	}
+
+	try {
+		// Look up identity cells and find the matching agent.
+		const script: Script = {
+			code_hash: AGENT_TYPE_CODE_HASH,
+			hash_type: 'data1',
+			args: '0x',
+		};
+		const result = await getCellsByScript(script, 'type', 200);
+		const match = result.objects.find(
+			(c) => c.output.lock.args.toLowerCase() === lock_args.toLowerCase(),
+		);
+		if (!match) {
+			res.status(404).json({ error: 'no agent identity cell found for this lock_args' });
+			return;
+		}
+		const agent = parseAgentCell(match.output_data, lock_args);
+		if (!agent) {
+			res.status(422).json({ error: 'cell is not a valid agent identity cell' });
+			return;
+		}
+
+		// Keysend to the agent's pubkey.
+		const payment = await sendPayment({ targetPubkey: agent.pubkey, amountCkb: amount_ckb, description });
+		res.json({
+			payment_hash: payment.payment_hash,
+			status: payment.status,
+			fee_shannons: payment.fee,
+			agent_pubkey: agent.pubkey,
+		});
+	} catch (e) {
+		console.error('fiber route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
 	}
 });
 

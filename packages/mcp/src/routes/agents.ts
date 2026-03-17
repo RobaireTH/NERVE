@@ -15,7 +15,7 @@ const CAP_NFT_TYPE_CODE_HASH = process.env.CAP_NFT_TYPE_CODE_HASH ?? '';
 // [34..42] spending_limit: u64 LE
 // [42..50] daily_limit: u64 LE
 
-interface AgentInfo {
+export interface AgentInfo {
 	lock_args: string;
 	pubkey: string;
 	spending_limit_ckb: number;
@@ -25,7 +25,7 @@ interface AgentInfo {
 	revenue_share_bps?: number;
 }
 
-function parseAgentCell(outputData: string, lockArgs: string): AgentInfo | null {
+export function parseAgentCell(outputData: string, lockArgs: string): AgentInfo | null {
 	if (!outputData || outputData === '0x' || outputData.length < 2 + 100) return null;
 	const raw = Buffer.from(outputData.replace('0x', ''), 'hex');
 	if (raw.length < 50) return null;

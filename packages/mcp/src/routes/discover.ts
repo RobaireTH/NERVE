@@ -99,6 +99,12 @@ router.get('/', (_req, res) => {
 					description: 'Settle a hold invoice with preimage.',
 				},
 				pay: { method: 'POST', path: '/fiber/pay', description: 'Send payment.' },
+				pay_agent: {
+					method: 'POST',
+					path: '/fiber/pay-agent',
+					description: 'Look up agent pubkey by lock_args and keysend payment.',
+					body: '{ lock_args, amount_ckb, description? }',
+				},
 				fiber_status: {
 					method: 'GET',
 					path: '/fiber/ready',
