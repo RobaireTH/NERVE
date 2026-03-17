@@ -161,9 +161,18 @@ router.get('/discover/workers', async (_req, res) => {
 				// Parse identity data.
 				let spendingLimitCkb = 0;
 				let dailyLimitCkb = 0;
+				let identityVersion = 0;
+				let parentLockArgs: string | undefined;
+				let revenueShareBps: number | undefined;
 				if (raw.length >= 50) {
+					identityVersion = raw[0];
 					spendingLimitCkb = Number(raw.readBigUInt64LE(34)) / 1e8;
 					dailyLimitCkb = Number(raw.readBigUInt64LE(42)) / 1e8;
+				}
+				// V1 delegation fields.
+				if (identityVersion >= 1 && raw.length >= 72) {
+					parentLockArgs = '0x' + raw.subarray(50, 70).toString('hex');
+					revenueShareBps = raw.readUInt16LE(70);
 				}
 
 				// Fetch reputation (best-effort).
@@ -236,6 +245,9 @@ router.get('/discover/workers', async (_req, res) => {
 					lock_args: lockArgs,
 					spending_limit_ckb: spendingLimitCkb,
 					daily_limit_ckb: dailyLimitCkb,
+					identity_version: identityVersion,
+					parent_lock_args: parentLockArgs,
+					revenue_share_bps: revenueShareBps,
 					reputation: {
 						...reputation,
 						score_pct: score,

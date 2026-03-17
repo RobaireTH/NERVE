@@ -19,22 +19,33 @@ interface AgentInfo {
 	pubkey: string;
 	spending_limit_ckb: number;
 	daily_limit_ckb: number;
+	version: number;
+	parent_lock_args?: string;
+	revenue_share_bps?: number;
 }
 
 function parseAgentCell(outputData: string, lockArgs: string): AgentInfo | null {
 	if (!outputData || outputData === '0x' || outputData.length < 2 + 100) return null;
 	const raw = Buffer.from(outputData.replace('0x', ''), 'hex');
 	if (raw.length < 50) return null;
-	if (raw[0] !== 0) return null;
+	const version = raw[0];
+	if (version > 1) return null;
 	const pubkey = '0x' + raw.subarray(1, 34).toString('hex');
 	const spendingLimit = raw.readBigUInt64LE(34);
 	const dailyLimit = raw.readBigUInt64LE(42);
-	return {
+	const info: AgentInfo = {
 		lock_args: lockArgs,
 		pubkey,
 		spending_limit_ckb: Number(spendingLimit) / 1e8,
 		daily_limit_ckb: Number(dailyLimit) / 1e8,
+		version,
 	};
+	// V1 identity: parse parent delegation fields.
+	if (version >= 1 && raw.length >= 72) {
+		info.parent_lock_args = '0x' + raw.subarray(50, 70).toString('hex');
+		info.revenue_share_bps = raw.readUInt16LE(70);
+	}
+	return info;
 }
 
 // ─── Reputation cell data layout (46 bytes) ───────────────────────────────────
@@ -214,6 +225,54 @@ router.get('/:lock_args/capabilities', async (req, res) => {
 				};
 			});
 		res.json({ capabilities, count: capabilities.length });
+	} catch (e) {
+		console.error('agents route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
+	}
+});
+
+// GET /agents/:lock_args/sub-agents — list sub-agents whose parent_lock_args matches this agent.
+router.get('/:lock_args/sub-agents', async (req, res) => {
+	if (!AGENT_TYPE_CODE_HASH) {
+		res.status(503).json({ error: 'AGENT_IDENTITY_TYPE_CODE_HASH not configured' });
+		return;
+	}
+
+	const { lock_args } = req.params;
+
+	const script: Script = {
+		code_hash: AGENT_TYPE_CODE_HASH,
+		hash_type: 'data1',
+		args: '0x',
+	};
+
+	try {
+		const result = await getCellsByScript(script, 'type', 200);
+		const subAgents = result.objects
+			.map((c) => {
+				const agent = parseAgentCell(c.output_data, c.output.lock.args);
+				if (!agent) return null;
+				// Only include v1 identities whose parent_lock_args matches.
+				if (
+					agent.version < 1 ||
+					!agent.parent_lock_args ||
+					agent.parent_lock_args.toLowerCase() === '0x' + '00'.repeat(20) ||
+					agent.parent_lock_args.toLowerCase() !== lock_args.toLowerCase()
+				) {
+					return null;
+				}
+				return {
+					lock_args: agent.lock_args,
+					parent_lock_args: agent.parent_lock_args,
+					revenue_share_bps: agent.revenue_share_bps,
+					spending_limit_ckb: agent.spending_limit_ckb,
+					daily_limit_ckb: agent.daily_limit_ckb,
+					out_point: c.out_point,
+				};
+			})
+			.filter(Boolean);
+
+		res.json({ sub_agents: subAgents, count: subAgents.length });
 	} catch (e) {
 		console.error('agents route error:', e);
 		res.status(502).json({ error: 'upstream request failed' });
