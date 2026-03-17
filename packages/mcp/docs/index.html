@@ -561,7 +561,7 @@
 	<pre><code>curl -s http://localhost:8081/jobs/match/0x&lt;your_lock_args&gt; | jq .</code></pre>
 
 	<h3>5. Post a new job.</h3>
-	<pre><span class="pre-label">bash</span><code>curl -s -X POST http://localhost:8081/jobs \
+	<pre><code>curl -s -X POST http://localhost:8081/jobs \
   -H 'Content-Type: application/json' \
   -d '{
     "reward_ckb": 10,
@@ -576,7 +576,7 @@ curl -s http://localhost:8081/agents/0x&lt;lock_args&gt;/badges | jq .
 curl -s http://localhost:8081/agents/0x&lt;lock_args&gt;/capabilities | jq .</code></pre>
 
 	<h3>7. Jailbreak demo (spending cap rejection).</h3>
-	<pre><span class="pre-label">bash</span><code># Requires ENABLE_ADMIN_API=1 on nerve-core.
+	<pre><code># Requires ENABLE_ADMIN_API=1 on nerve-core.
 curl -s -X POST http://localhost:8080/admin/test-spending-cap | jq .</code></pre>
 </section>
 
@@ -674,7 +674,7 @@ curl -s -X POST http://localhost:8080/admin/test-spending-cap | jq .</code></pre
 70      2     revenue_share_bps (u16 LE, 1000 = 10%)</code></pre>
 
 	<h3>Spawn a Sub-Agent</h3>
-	<pre><span class="pre-label">bash</span><code>curl -s -X POST http://localhost:8080/tx/build-and-broadcast \
+	<pre><code>curl -s -X POST http://localhost:8080/tx/build-and-broadcast \
   -H 'Content-Type: application/json' \
   -d '{
     "intent": "spawn_sub_agent",
