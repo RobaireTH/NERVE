@@ -304,7 +304,7 @@ router.get('/:lock_args/reputation/verify', async (req, res) => {
 		let root = Buffer.alloc(32);
 		for (const sh of hashBuffers) {
 			const preimage = Buffer.concat([root, sh]);
-			root = ckbBlake2b(preimage);
+			root = Buffer.from(ckbBlake2b(preimage)) as Buffer<ArrayBuffer>;
 		}
 
 		const computedRoot = '0x' + root.toString('hex');

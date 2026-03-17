@@ -130,7 +130,7 @@ elif [[ -n "${FIBER_RPC_URL:-}" ]]; then
 	# User provided an external Fiber node — validate it responds.
 	if curl -sf -X POST "${FIBER_RPC_URL}" \
 		-H "Content-Type: application/json" \
-		-d '{"jsonrpc":"2.0","id":1,"method":"info_node_info","params":{}}' \
+		-d '{"jsonrpc":"2.0","id":1,"method":"node_info","params":[]}' \
 		>/dev/null 2>&1; then
 		ok "External Fiber node reachable at ${FIBER_RPC_URL}"
 		FIBER_STATUS="external"

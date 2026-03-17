@@ -87,7 +87,7 @@ ok "Channel ID: $CHANNEL_ID"
 step "Worker: creating invoice for $PAYMENT_CKB CKB"
 INVOICE_RESP=$(curl -sf -X POST "$FIBER_WORKER_RPC_URL" \
 	-H "Content-Type: application/json" \
-	-d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"invoice_new_invoice\",\"params\":{\"amount\":$(echo "$PAYMENT_CKB * 100000000" | bc | cut -d. -f1),\"description\":\"test payment\",\"currency\":\"Fibt\",\"expiry\":3600,\"final_expiry_delta\":86400000}}")
+	-d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"new_invoice\",\"params\":{\"amount\":$(echo "$PAYMENT_CKB * 100000000" | bc | cut -d. -f1),\"description\":\"test payment\",\"currency\":\"Fibt\",\"expiry\":3600,\"final_expiry_delta\":86400000}}")
 INVOICE=$(echo "$INVOICE_RESP" | grep -o '"invoice_address":"[^"]*"' | cut -d'"' -f4 || true)
 [[ -n "$INVOICE" ]] || fail "invoice creation failed: $INVOICE_RESP"
 ok "Invoice: ${INVOICE:0:40}..."

@@ -73,15 +73,15 @@ export { FiberRpcError };
 
 export async function nodeInfo(): Promise<FiberNodeInfo> {
 	try {
-		return await client.call<FiberNodeInfo>('info_node_info', {});
+		return await client.call<FiberNodeInfo>('node_info', {});
 	} catch (e) {
 		if (e instanceof FiberRpcError) throw e;
-		throw new Error(`Fiber RPC info_node_info: ${(e as Error).message}`);
+		throw new Error(`Fiber RPC node_info: ${(e as Error).message}`);
 	}
 }
 
 export async function connectPeer(peerAddress: string, save = true): Promise<void> {
-	await client.call('peer_connect_peer', { address: peerAddress, save });
+	await client.call('connect_peer', { address: peerAddress, save });
 }
 
 export async function openChannel(
@@ -90,7 +90,7 @@ export async function openChannel(
 	isPublic = true,
 ): Promise<{ temporary_channel_id: string }> {
 	const fundingAmount = '0x' + ckbToShannons(fundingCkb).toString(16);
-	return client.call('channel_open_channel', {
+	return client.call('open_channel', {
 		peer_id: peerId,
 		funding_amount: fundingAmount,
 		public: isPublic,
@@ -104,7 +104,7 @@ export async function openChannel(
 }
 
 export async function listChannels(peerId?: string): Promise<{ channels: FiberChannel[] }> {
-	return client.call('channel_list_channels', {
+	return client.call('list_channels', {
 		peer_id: peerId ?? null,
 		include_closed: false,
 	});
@@ -114,7 +114,7 @@ export async function shutdownChannel(
 	channelId: string,
 	force = false,
 ): Promise<void> {
-	await client.call('channel_shutdown_channel', {
+	await client.call('shutdown_channel', {
 		channel_id: channelId,
 		close_script: null,
 		fee_rate: 1000,
@@ -128,7 +128,7 @@ export async function newInvoice(
 	expirySeconds = 3600,
 ): Promise<FiberInvoice> {
 	const currency = process.env.FIBER_CURRENCY ?? 'Fibt';
-	return client.call('invoice_new_invoice', {
+	return client.call('new_invoice', {
 		amount: '0x' + ckbToShannons(amountCkb).toString(16),
 		description,
 		currency,
@@ -150,7 +150,7 @@ export async function newHoldInvoice(
 	expirySeconds = 3600,
 ): Promise<FiberHoldInvoice> {
 	const currency = process.env.FIBER_CURRENCY ?? 'Fibt';
-	return client.call('invoice_new_invoice', {
+	return client.call('new_invoice', {
 		amount: '0x' + ckbToShannons(amountCkb).toString(16),
 		description,
 		currency,
@@ -166,7 +166,7 @@ export async function settleInvoice(
 	paymentHash: string,
 	preimage: string,
 ): Promise<void> {
-	await client.call('invoice_settle_invoice', {
+	await client.call('settle_invoice', {
 		payment_hash: paymentHash,
 		payment_preimage: preimage,
 	});
@@ -176,7 +176,7 @@ export async function settleInvoice(
 export async function getInvoice(
 	paymentHash: string,
 ): Promise<FiberHoldInvoice> {
-	return client.call('invoice_get_invoice', {
+	return client.call('get_invoice', {
 		payment_hash: paymentHash,
 	});
 }
@@ -207,7 +207,7 @@ export async function sendPayment(opts: {
 		params.amount = '0x' + ckbToShannons(opts.amountCkb).toString(16);
 	}
 
-	return client.call('payment_send_payment', params);
+	return client.call('send_payment', params);
 }
 
 // ─── fiber-pay enhanced helpers ─────────────────────────────────────────────
@@ -215,7 +215,7 @@ export async function sendPayment(opts: {
 /// Check if the Fiber node is reachable and ready to process payments.
 export async function isNodeReady(): Promise<boolean> {
 	try {
-		await client.call('info_node_info', {});
+		await client.call('node_info', {});
 		return true;
 	} catch {
 		return false;
