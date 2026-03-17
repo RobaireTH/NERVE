@@ -202,13 +202,30 @@
 	.pre-label {
 		position: absolute;
 		top: 8px;
-		right: 12px;
+		right: 44px;
 		font-size: 0.65rem;
 		text-transform: uppercase;
 		letter-spacing: 0.06em;
 		color: var(--text-muted);
 		font-family: var(--mono);
 	}
+	.copy-btn {
+		position: absolute;
+		top: 10px;
+		right: 10px;
+		background: none;
+		border: none;
+		color: var(--text-muted);
+		cursor: pointer;
+		padding: 4px;
+		line-height: 1;
+		transition: color 0.15s;
+		opacity: 0;
+	}
+	pre:hover .copy-btn { opacity: 1; }
+	.copy-btn:hover { color: var(--text); }
+	.copy-btn.copied { color: var(--green); opacity: 1; }
+	.copy-btn svg { display: block; }
 
 	/* ── Cards ── */
 	.cards {
@@ -923,6 +940,32 @@ curl -s -X POST http://localhost:8080/admin/test-spending-cap | jq .</code></pre
 </footer>
 
 </div><!-- /.main -->
+
+<!-- ── Copy buttons on code blocks ── -->
+<script>
+(function() {
+	document.querySelectorAll('pre').forEach(function(pre) {
+		var copyIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+		var checkIcon = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>';
+		var btn = document.createElement('button');
+		btn.className = 'copy-btn';
+		btn.innerHTML = copyIcon;
+		btn.addEventListener('click', function() {
+			var code = pre.querySelector('code');
+			var text = (code || pre).textContent;
+			navigator.clipboard.writeText(text).then(function() {
+				btn.innerHTML = checkIcon;
+				btn.classList.add('copied');
+				setTimeout(function() {
+					btn.innerHTML = copyIcon;
+					btn.classList.remove('copied');
+				}, 1500);
+			});
+		});
+		pre.appendChild(btn);
+	});
+})();
+</script>
 
 <!-- ── Sidebar active state ── -->
 <script>
