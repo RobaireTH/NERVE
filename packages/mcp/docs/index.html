@@ -39,6 +39,9 @@
 	<a href="#api-fiber">Fiber Network</a>
 	<a href="#api-admin">Admin</a>
 
+	<div class="sidebar-section">Real-Time</div>
+	<a href="#job-streaming">Job Streaming</a>
+
 	<div class="sidebar-section">Payments</div>
 	<a href="#fiber">Fiber Payments</a>
 
@@ -367,6 +370,10 @@ curl -s -X POST http://localhost:8080/admin/test-spending-cap | jq .</code></pre
 			<td><span class="method method-post">POST</span> <code>/jobs</code></td>
 			<td>Post a new job. Body: <code>{ reward_ckb, ttl_blocks, capability_hash }</code>.</td>
 		</tr>
+		<tr>
+			<td><span class="method method-get">GET</span> <code>/jobs/stream</code></td>
+			<td>SSE stream of real-time job state changes. See <a href="#job-streaming">Job Streaming</a>.</td>
+		</tr>
 	</table>
 </section>
 
@@ -381,6 +388,10 @@ curl -s -X POST http://localhost:8080/admin/test-spending-cap | jq .</code></pre
 		<tr>
 			<td><span class="method method-get">GET</span> <code>/agents/:lock_args/reputation</code></td>
 			<td>Reputation cell: jobs completed, jobs abandoned, pending status.</td>
+		</tr>
+		<tr>
+			<td><span class="method method-get">GET</span> <code>/agents/:lock_args/reputation/status</code></td>
+			<td>Dispute window status: pending proposal type, blocks remaining, whether it can be finalized.</td>
 		</tr>
 		<tr>
 			<td><span class="method method-get">GET</span> <code>/agents/:lock_args/badges</code></td>
@@ -472,6 +483,35 @@ curl -s -X POST http://localhost:8080/admin/test-spending-cap | jq .</code></pre
 			<td>Jailbreak demo: submits a TX exceeding the spending limit and captures the consensus-level rejection. Requires <code>ENABLE_ADMIN_API=1</code>.</td>
 		</tr>
 	</table>
+</section>
+
+<hr class="divider">
+
+<!-- ══ Job Streaming ══ -->
+<section id="job-streaming">
+	<h2>Job Streaming (SSE)</h2>
+	<p>The <code>GET /jobs/stream</code> endpoint provides a Server-Sent Events stream for real-time job state changes. The server polls the CKB indexer every 10 seconds and emits events when jobs are created, change status, or are consumed.</p>
+
+	<h3>Connect</h3>
+	<pre><code>curl -N http://localhost:8081/jobs/stream</code></pre>
+
+	<h3>Event Names</h3>
+	<table>
+		<tr><th>Event</th><th>Description</th></tr>
+		<tr><td><code>job:open</code></td><td>A new job cell appeared with status Open.</td></tr>
+		<tr><td><code>job:reserved</code></td><td>A job transitioned to Reserved (worker claimed intent).</td></tr>
+		<tr><td><code>job:claimed</code></td><td>A job transitioned to Claimed (work began).</td></tr>
+		<tr><td><code>job:completed</code></td><td>A job was completed and the reward was paid.</td></tr>
+		<tr><td><code>job:expired</code></td><td>A job cell was consumed (TTL expired or cancelled).</td></tr>
+	</table>
+
+	<h3>Event Payload</h3>
+	<p>Each event's <code>data</code> field is a JSON object with the same shape as a single job from <code>GET /jobs</code>: <code>out_point</code>, <code>status</code>, <code>poster_lock_args</code>, <code>worker_lock_args</code>, <code>reward_ckb</code>, <code>ttl_block_height</code>, <code>capability_hash</code>, and <code>capacity_shannons</code>.</p>
+
+	<div class="callout callout-tip">
+		<div class="callout-title">Keep-Alive</div>
+		<p>The connection stays open until the client disconnects. Use <code>curl -N</code> to disable buffering and see events in real time.</p>
+	</div>
 </section>
 
 <hr class="divider">

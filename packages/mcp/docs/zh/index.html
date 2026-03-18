@@ -39,6 +39,9 @@
 	<a href="#api-fiber">Fiber 网络</a>
 	<a href="#api-admin">管理</a>
 
+	<div class="sidebar-section">实时</div>
+	<a href="#job-streaming">任务流</a>
+
 	<div class="sidebar-section">支付</div>
 	<a href="#fiber">Fiber 支付</a>
 
@@ -367,6 +370,10 @@ curl -s -X POST http://localhost:8080/admin/test-spending-cap | jq .</code></pre
 			<td><span class="method method-post">POST</span> <code>/jobs</code></td>
 			<td>发布新任务。请求体：<code>{ reward_ckb, ttl_blocks, capability_hash }</code>。</td>
 		</tr>
+		<tr>
+			<td><span class="method method-get">GET</span> <code>/jobs/stream</code></td>
+			<td>任务状态变更的实时 SSE 流。参见<a href="#job-streaming">任务流</a>。</td>
+		</tr>
 	</table>
 </section>
 
@@ -381,6 +388,10 @@ curl -s -X POST http://localhost:8080/admin/test-spending-cap | jq .</code></pre
 		<tr>
 			<td><span class="method method-get">GET</span> <code>/agents/:lock_args/reputation</code></td>
 			<td>声誉 Cell：已完成任务、已放弃任务、待处理状态。</td>
+		</tr>
+		<tr>
+			<td><span class="method method-get">GET</span> <code>/agents/:lock_args/reputation/status</code></td>
+			<td>争议窗口状态：待处理提案类型、剩余区块数、是否可终结。</td>
 		</tr>
 		<tr>
 			<td><span class="method method-get">GET</span> <code>/agents/:lock_args/badges</code></td>
@@ -472,6 +483,35 @@ curl -s -X POST http://localhost:8080/admin/test-spending-cap | jq .</code></pre
 			<td>越狱演示：提交一笔超过支出限额的交易并捕获共识层的拒绝。需要设置 <code>ENABLE_ADMIN_API=1</code>。</td>
 		</tr>
 	</table>
+</section>
+
+<hr class="divider">
+
+<!-- ══ Job Streaming ══ -->
+<section id="job-streaming">
+	<h2>任务流（SSE）</h2>
+	<p><code>GET /jobs/stream</code> 端点提供 Server-Sent Events 流，用于实时获取任务状态变更。服务器每 10 秒轮询 CKB indexer，当任务创建、状态变更或被消耗时发出事件。</p>
+
+	<h3>连接</h3>
+	<pre><code>curl -N http://localhost:8081/jobs/stream</code></pre>
+
+	<h3>事件名称</h3>
+	<table>
+		<tr><th>事件</th><th>描述</th></tr>
+		<tr><td><code>job:open</code></td><td>新的任务 Cell 出现，状态为 Open。</td></tr>
+		<tr><td><code>job:reserved</code></td><td>任务转为 Reserved（工作者声明意向）。</td></tr>
+		<tr><td><code>job:claimed</code></td><td>任务转为 Claimed（工作开始）。</td></tr>
+		<tr><td><code>job:completed</code></td><td>任务已完成，奖励已支付。</td></tr>
+		<tr><td><code>job:expired</code></td><td>任务 Cell 被消耗（TTL 过期或已取消）。</td></tr>
+	</table>
+
+	<h3>事件载荷</h3>
+	<p>每个事件的 <code>data</code> 字段是一个 JSON 对象，与 <code>GET /jobs</code> 中的单个任务格式相同：<code>out_point</code>、<code>status</code>、<code>poster_lock_args</code>、<code>worker_lock_args</code>、<code>reward_ckb</code>、<code>ttl_block_height</code>、<code>capability_hash</code> 和 <code>capacity_shannons</code>。</p>
+
+	<div class="callout callout-tip">
+		<div class="callout-title">保持连接</div>
+		<p>连接会保持打开，直到客户端断开。使用 <code>curl -N</code> 禁用缓冲以实时查看事件。</p>
+	</div>
 </section>
 
 <hr class="divider">
