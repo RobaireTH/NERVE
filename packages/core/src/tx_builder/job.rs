@@ -43,7 +43,6 @@ fn job_type_env() -> Result<(String, String), TxBuildError> {
 	Ok((code_hash, dep_tx_hash))
 }
 
-/// Encodes the 90-byte job cell data field.
 pub fn encode_job_data(
 	poster_lock_args: &[u8; 20],
 	worker_lock_args: &[u8; 20],
@@ -62,7 +61,6 @@ pub fn encode_job_data(
 	data
 }
 
-/// Encodes a 33-byte result memo cell data: version(1) + result_hash(32).
 pub fn encode_result_memo(result_hash: &[u8; 32]) -> Vec<u8> {
 	let mut data = Vec::with_capacity(33);
 	data.push(0u8);
@@ -70,7 +68,6 @@ pub fn encode_result_memo(result_hash: &[u8; 32]) -> Vec<u8> {
 	data
 }
 
-/// Parses lock_args hex (0x-prefixed) to [u8; 20].
 pub fn parse_lock_args_20(hex: &str) -> Result<[u8; 20], TxBuildError> {
 	let bytes = hex::decode(hex.trim_start_matches("0x"))
 		.map_err(|e| TxBuildError::InvalidLockArgs(e.to_string()))?;
@@ -85,7 +82,6 @@ pub fn parse_lock_args_20(hex: &str) -> Result<[u8; 20], TxBuildError> {
 	Ok(arr)
 }
 
-/// Parses a 32-byte hash hex (0x-prefixed) to [u8; 32].
 pub fn parse_hash_32(hex: &str) -> Result<[u8; 32], TxBuildError> {
 	let bytes = hex::decode(hex.trim_start_matches("0x"))
 		.map_err(|e| TxBuildError::InvalidTypeArgs(e.to_string()))?;
@@ -100,7 +96,6 @@ pub fn parse_hash_32(hex: &str) -> Result<[u8; 32], TxBuildError> {
 	Ok(arr)
 }
 
-/// Fetches a live job cell and parses its data. Returns (cell_capacity, job_data_bytes).
 async fn fetch_job_cell(
 	state: &AppState,
 	tx_hash: &str,
@@ -135,8 +130,6 @@ async fn fetch_job_cell(
 	Ok((capacity, data))
 }
 
-/// Gathers enough of the agent's own secp256k1 cells to cover `needed` shannons (fee source).
-///
 /// Only uses plain cells (no type script) to avoid UTXO conflicts with typed cell inputs
 /// (job, reputation, pool, identity) in the same transaction.
 async fn gather_fee_inputs(
@@ -207,7 +200,6 @@ fn placeholder_witnesses(count: usize) -> Vec<Value> {
 		.collect()
 }
 
-/// Creates an Open job cell.
 pub async fn build_post_job(
 	state: &AppState,
 	reward_shannons: u64,
@@ -258,8 +250,6 @@ pub async fn build_post_job(
 	sign_and_finalize(state, tx).await
 }
 
-/// reserve_job — transitions Open → Reserved, sets worker_lock_args.
-///
 /// Includes header_dep for on-chain TTL validation and, when the job requires a capability,
 /// the worker's matching capability NFT as a cell_dep for on-chain verification.
 pub async fn build_reserve_job(
@@ -321,7 +311,6 @@ pub async fn build_reserve_job(
 	sign_and_finalize(state, tx).await
 }
 
-/// claim_job — transitions Reserved → Claimed.
 pub async fn build_claim_job(
 	state: &AppState,
 	job_tx_hash: &str,
@@ -368,7 +357,6 @@ pub async fn build_claim_job(
 	sign_and_finalize(state, tx).await
 }
 
-/// Fetches the worker's identity cell and decodes its data.
 /// Returns None if no identity cell is found or the type script env vars are not set.
 async fn fetch_worker_identity(
 	state: &AppState,
@@ -423,8 +411,6 @@ async fn fetch_worker_identity(
 	}
 }
 
-/// Finds a live capability NFT cell matching the worker's lock_args and capability_hash.
-/// Returns the cell's outpoint for use as a cell_dep.
 async fn find_worker_capability_nft(
 	state: &AppState,
 	worker_lock_args: &str,
@@ -479,11 +465,8 @@ async fn find_worker_capability_nft(
 	)))
 }
 
-/// complete_job — destroys the job cell, routes reward to worker and overhead back to poster.
-///
-/// When `result_hash` is provided, an additional result memo cell (33 bytes of data) is created
-/// under the worker's lock as on-chain proof of work. The memo capacity is deducted from the
-/// poster's refund.
+/// When `result_hash` is provided, an additional result memo cell is created under the worker's
+/// lock as on-chain proof of work. The memo capacity is deducted from the poster's refund.
 pub async fn build_complete_job(
 	state: &AppState,
 	job_tx_hash: &str,
@@ -583,12 +566,8 @@ pub async fn build_complete_job(
 	sign_and_finalize(state, tx).await
 }
 
-/// Computes the revenue split between worker and parent.
-/// Returns (worker_amount, Option<(parent_lock_args, parent_amount)>).
-///
-/// If the worker has a v1 identity with non-zero parent_lock_args and revenue_share_bps > 0,
-/// the parent gets a share of the reward. If either the parent's or worker's share would be
-/// below MIN_PAYMENT_CELL (61 CKB), the worker gets 100% (best-effort split).
+/// If either the parent's or worker's share would be below MIN_PAYMENT_CELL (61 CKB),
+/// the worker gets 100% (best-effort split).
 fn compute_revenue_split(
 	reward_shannons: u64,
 	identity: &Option<IdentityData>,
@@ -627,10 +606,8 @@ fn compute_revenue_split(
 	(worker_amount, Some((parent_lock_args, parent_amount)))
 }
 
-/// cancel_job — destroys the job cell (Expired), returns capacity to poster.
-///
-/// For non-Open jobs (Reserved/Claimed), includes a header_dep so the type script
-/// can verify the TTL has elapsed before allowing cancellation.
+/// For non-Open jobs, includes a header_dep so the type script can verify TTL
+/// has elapsed before allowing cancellation.
 pub async fn build_cancel_job(
 	state: &AppState,
 	job_tx_hash: &str,

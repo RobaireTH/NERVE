@@ -62,8 +62,6 @@ fn placeholder_witnesses(count: usize) -> Vec<Value> {
 		.collect()
 }
 
-/// Encode reputation cell data (46 bytes).
-///
 /// Layout:
 ///   [0]       version = 0
 ///   [1]       pending_type: 0=idle, 1=propose_completed, 2=propose_abandoned
@@ -101,7 +99,6 @@ fn parse_rep_data(data: &[u8]) -> Result<(u8, u64, u64, u64, [u8; 20]), TxBuildE
 	Ok((pending_type, jobs_completed, jobs_abandoned, pending_expires_at, agent_lock_args))
 }
 
-/// Encode V1 reputation cell data (110 bytes).
 fn encode_rep_data_v1(
 	pending_type: u8,
 	jobs_completed: u64,
@@ -179,7 +176,6 @@ pub fn compute_proof_root(old_root: &[u8; 32], settlement_hash: &[u8; 32]) -> [u
 	out
 }
 
-/// Fetches a live reputation cell by outpoint. Returns (capacity, data, type_args).
 async fn fetch_rep_cell(
 	state: &AppState,
 	tx_hash: &str,
@@ -208,7 +204,6 @@ async fn fetch_rep_cell(
 	Ok((capacity, data, type_args))
 }
 
-/// Creates a new reputation cell for an agent (initial state: Idle, zero counters).
 pub async fn build_create_reputation(
 	state: &AppState,
 ) -> Result<(Value, String), TxBuildError> {
@@ -291,7 +286,6 @@ pub async fn build_create_reputation(
 	Ok((tx, tx_hash_str))
 }
 
-/// Creates a new V1 reputation cell with blake2b hash-chain provability.
 pub async fn build_create_reputation_v1(
 	state: &AppState,
 ) -> Result<(Value, String), TxBuildError> {
@@ -374,8 +368,6 @@ pub async fn build_create_reputation_v1(
 	Ok((tx, tx_hash_str))
 }
 
-/// Proposes a reputation update (Idle → Proposed).
-///
 /// `propose_type`: 1 = completed, 2 = abandoned.
 /// `dispute_window_blocks`: number of blocks until the proposal can be finalized.
 /// `settlement_hash`: required for V1 cells — evidence hash linking to a real job completion.
@@ -485,8 +477,6 @@ pub async fn build_propose_reputation(
 	Ok((tx, tx_hash_str))
 }
 
-/// Finalizes a proposed reputation update (Proposed → Finalized).
-///
 /// Increments the relevant counter and clears the pending state.
 /// Sets the `since` field on the reputation input to enforce the dispute window.
 pub async fn build_finalize_reputation(

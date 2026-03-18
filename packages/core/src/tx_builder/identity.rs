@@ -50,7 +50,6 @@ const IDENTITY_CELL_CAPACITY: u64 = 232 * 100_000_000;
 // Estimated fee for the spawn transaction (shannons).
 const ESTIMATED_FEE: u64 = 1_000_000;
 
-/// Parsed agent identity cell data, version-aware.
 #[derive(Debug, Clone, PartialEq)]
 pub struct IdentityData {
 	pub version: u8,
@@ -67,7 +66,6 @@ pub struct IdentityData {
 	pub last_reset_epoch: Option<u64>,
 }
 
-/// Serializes a v0 agent identity cell data (50 bytes).
 pub fn encode_identity_data(
 	pubkey: &[u8; 33],
 	spending_limit_shannons: u64,
@@ -81,7 +79,6 @@ pub fn encode_identity_data(
 	data
 }
 
-/// Serializes a v1 agent identity cell data (72 bytes) with parent delegation fields.
 pub fn encode_identity_data_v1(
 	pubkey: &[u8; 33],
 	spending_limit_shannons: u64,
@@ -99,7 +96,6 @@ pub fn encode_identity_data_v1(
 	data
 }
 
-/// Serializes a v2 agent identity cell data (88 bytes) with daily spending accumulator.
 #[allow(dead_code)]
 pub fn encode_identity_data_v2(
 	pubkey: &[u8; 33],
@@ -122,7 +118,6 @@ pub fn encode_identity_data_v2(
 	data
 }
 
-/// Decodes identity cell data, handling v0 (50 bytes), v1 (72 bytes), and v2 (88 bytes) layouts.
 pub fn decode_identity_data(data: &[u8]) -> Result<IdentityData, TxBuildError> {
 	if data.len() < IDENTITY_V0_DATA_SIZE {
 		return Err(TxBuildError::Rpc(format!(
@@ -199,7 +194,6 @@ pub fn decode_identity_data(data: &[u8]) -> Result<IdentityData, TxBuildError> {
 	}
 }
 
-/// Computes blake2b-256 of data with CKB personalization — used for code_hash derivation.
 pub fn blake2b_256(data: &[u8]) -> [u8; 32] {
 	let mut hasher = Blake2bBuilder::new(32)
 		.personal(b"ckb-default-hash")
@@ -210,13 +204,7 @@ pub fn blake2b_256(data: &[u8]) -> [u8; 32] {
 	out
 }
 
-/// Calculates the CKB Type ID from the first input's CellInput molecule encoding
-/// and the output index of the type-id-bearing cell.
-///
 /// type_id = blake2b(since(8) || prev_tx_hash(32) || prev_index(4) || output_index(8))
-///
-/// The `since`, `prev_tx_hash`, and `prev_index` come from inputs[0].
-/// The `output_index` is where the type-id cell appears in the transaction outputs.
 pub fn calculate_type_id(
 	first_input_tx_hash: &str,
 	first_input_index: u32,
@@ -246,8 +234,6 @@ pub fn calculate_type_id(
 	Ok(format!("0x{}", hex::encode(type_id)))
 }
 
-/// Builds, signs, and returns a spawn-agent transaction.
-///
 /// Reads the type script code_hash from `AGENT_IDENTITY_TYPE_CODE_HASH` env var
 /// and the dep tx_hash from `AGENT_IDENTITY_DEP_TX_HASH`. Both must be set after
 /// the contract is deployed via `POST /admin/deploy-bin`.
@@ -382,8 +368,6 @@ pub async fn build_spawn_agent(
 	Ok((tx, tx_hash))
 }
 
-/// Finds an agent's identity cell on-chain by lock_args.
-/// Returns the cell's outpoint as JSON, or None if not found.
 pub async fn find_identity_cell_outpoint(
 	state: &AppState,
 	lock_args: &str,
@@ -410,9 +394,6 @@ pub async fn find_identity_cell_outpoint(
 	Ok(None)
 }
 
-/// Builds, signs, and returns a spawn-sub-agent transaction.
-///
-/// Creates a v1 identity cell for a child agent with parent delegation fields.
 /// The identity cell is locked under the child's lock_args, but the parent funds
 /// and signs the transaction. Optionally creates a funding cell for the child.
 ///
@@ -578,7 +559,6 @@ pub async fn build_spawn_sub_agent(
 	Ok((tx, tx_hash))
 }
 
-/// Builds, signs, and returns a data-cell deployment transaction for a contract binary.
 pub async fn build_deploy_binary(
 	state: &AppState,
 	binary: Vec<u8>,

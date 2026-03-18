@@ -20,7 +20,6 @@ pub const SECP256K1_HASH_TYPE: &str = "type";
 pub const SECP256K1_DEP_TX_HASH: &str =
 	"0xf8de3bb47d055cdf460d93a2a6e1b05f7432f9777c8c474abf4eec1d4aee5d37";
 
-/// Persisted sub-agent key material and metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubAgentInfo {
 	pub private_key_hex: String,
@@ -84,7 +83,6 @@ impl AppState {
 		})
 	}
 
-	/// Returns the private key bytes for a given lock_args.
 	/// Checks the primary key first, then sub-agents.
 	#[allow(dead_code)]
 	pub async fn get_private_key_for(&self, lock_args: &str) -> Result<Vec<u8>, TxBuildError> {
@@ -104,7 +102,6 @@ impl AppState {
 		)))
 	}
 
-	/// Registers a new sub-agent and persists to disk.
 	pub async fn register_sub_agent(&self, info: SubAgentInfo) -> Result<(), TxBuildError> {
 		let lock_args = info.lock_args.clone();
 		{
@@ -116,14 +113,13 @@ impl AppState {
 	}
 }
 
-/// Returns the user's home directory, or /tmp as fallback.
 fn dirs_or_default() -> PathBuf {
 	std::env::var("HOME")
 		.map(PathBuf::from)
 		.unwrap_or_else(|_| PathBuf::from("/tmp"))
 }
 
-/// Loads sub-agents from a JSON file on disk. Returns an empty map if the file doesn't exist.
+/// Returns an empty map if the file doesn't exist.
 fn load_sub_agents(path: &PathBuf) -> HashMap<String, SubAgentInfo> {
 	let Ok(content) = std::fs::read_to_string(path) else {
 		return HashMap::new();
@@ -131,7 +127,6 @@ fn load_sub_agents(path: &PathBuf) -> HashMap<String, SubAgentInfo> {
 	serde_json::from_str(&content).unwrap_or_default()
 }
 
-/// Saves sub-agents to a JSON file on disk.
 fn save_sub_agents(
 	path: &PathBuf,
 	agents: &HashMap<String, SubAgentInfo>,

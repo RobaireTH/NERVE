@@ -99,12 +99,8 @@ pub fn encode_badge_data(content_json: &str) -> [u8; 34] {
 	data
 }
 
-/// Builds a transaction to mint a PoP (Proof of Participation) badge for a completed job.
-///
-/// The badge uses the deployed dob-badge type script with 60-byte args:
-///   type_id[20] || event_id_hash[20] || recipient_hash[20]
-///
-/// The badge cell is placed under the worker's lock, making it soulbound to the worker.
+/// 60-byte type_args: type_id[20] || event_id_hash[20] || recipient_hash[20].
+/// The badge cell is placed under the worker's lock, making it soulbound.
 pub async fn build_mint_badge(
 	state: &AppState,
 	job_tx_hash: &str,

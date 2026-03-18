@@ -56,8 +56,6 @@ fn placeholder_witnesses(count: usize) -> Vec<Value> {
 		.collect()
 }
 
-/// Encodes capability NFT cell data.
-///
 /// Layout (54+ bytes):
 ///   [0]       version = 0
 ///   [1]       proof_type: 0=attestation
@@ -78,10 +76,7 @@ fn encode_capability_data(
 	data
 }
 
-/// Creates a signed attestation proof.
-///
-/// The attestation is: sign(blake2b("ckb-default-hash", agent_lock_args || capability_hash)).
-/// This proves the private key holder attests to the capability.
+/// sign(blake2b("ckb-default-hash", agent_lock_args || capability_hash)).
 fn create_attestation(
 	private_key: &[u8],
 	agent_lock_args: &[u8; 20],
@@ -115,9 +110,7 @@ fn create_attestation(
 	Ok(signature)
 }
 
-/// Encodes capability NFT cell data for proof_type=1 (reputation-chain-backed).
-///
-/// Layout (118 bytes):
+/// Layout (118 bytes, proof_type=1 reputation-chain-backed):
 ///   [0]       version = 0
 ///   [1]       proof_type = 1
 ///   [2..22]   agent_lock_args: [u8; 20]
@@ -140,8 +133,6 @@ fn encode_capability_data_v1(
 	data
 }
 
-/// Finds the agent's reputation cell on-chain by lock_args.
-/// Returns the cell's outpoint as JSON, or None if not found.
 async fn find_reputation_cell_outpoint(
 	state: &AppState,
 	lock_args: &str,
@@ -168,8 +159,6 @@ async fn find_reputation_cell_outpoint(
 	Ok(None)
 }
 
-/// Builds a transaction to mint a capability NFT backed by reputation chain evidence.
-///
 /// Includes the agent's reputation cell as a cell_dep so the type script can
 /// cross-reference the proof_root_snapshot against the live on-chain proof_root.
 pub async fn build_mint_capability_v1(
@@ -255,7 +244,6 @@ pub async fn build_mint_capability_v1(
 	Ok((tx, tx_hash))
 }
 
-/// Builds a transaction to mint a capability NFT with a signed attestation proof.
 pub async fn build_mint_capability(
 	state: &AppState,
 	capability_hash: &[u8; 32],

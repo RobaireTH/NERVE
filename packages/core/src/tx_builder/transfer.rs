@@ -14,7 +14,6 @@ const MIN_CELL_CAPACITY: u64 = 6_100_000_000;
 // Estimated fee for a simple 1-input, 2-output transfer (in shannons).
 const ESTIMATED_FEE: u64 = 1_000_000;
 
-/// Builds, signs, and returns a ready-to-broadcast transfer transaction.
 pub async fn build_transfer(
 	state: &AppState,
 	to_lock_args: &str,

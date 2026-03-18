@@ -73,10 +73,8 @@ pub fn compute_signing_message(
 	Ok(result)
 }
 
-/// Signs a transaction: computes the signing message and returns the 65-byte compact + recovery signature.
-///
-/// `witness_count` is the total number of witnesses in the transaction. Additional witnesses
-/// beyond the first are assumed to be empty (as is standard for multi-input same-lock transactions).
+/// Additional witnesses beyond the first are assumed to be empty
+/// (as is standard for multi-input same-lock transactions).
 pub fn sign_tx(
 	tx_hash_hex: &str,
 	private_key: &[u8],
