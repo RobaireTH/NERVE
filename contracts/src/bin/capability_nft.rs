@@ -1,14 +1,16 @@
 // Capability NFT Type Script
 //
 // Represents a verifiable capability claim for an agent.
-// Attestation mode: off-chain signed proof bytes in data field.
+// Two proof modes: attestation (signed) and reputation-chain-backed.
 //
 // Invariants:
 //   Creation:
-//     - version = 0, proof_type must be 0 (attestation) for now.
+//     - version = 0, proof_type must be 0 (attestation) or 1 (reputation-backed).
 //     - agent_lock_args must be non-zero (ties NFT to an agent identity).
 //     - capability_hash must be non-zero.
 //     - proof_data (bytes 54+) must be non-empty.
+//     - For proof_type=1: proof_root_snapshot must match a live v1 reputation
+//       cell for this agent in cell_deps (on-chain cross-referencing).
 //   Spending:
 //     - The NFT cell must reappear in outputs (capability cannot be destroyed unilaterally).
 //     - capability_hash and agent_lock_args are immutable.
@@ -29,7 +31,7 @@ use ckb_std::{
 	default_alloc,
 	entry,
 	error::SysError,
-	high_level::load_cell_data,
+	high_level::{load_cell_data, load_cell_type_hash},
 };
 
 default_alloc!();
@@ -43,6 +45,7 @@ const ERR_ZERO_CAP_HASH: i8 = 5;
 const ERR_EMPTY_PROOF: i8 = 6;
 const ERR_IMMUTABLE_FIELD_CHANGED: i8 = 7;
 const ERR_NFT_DESTROYED: i8 = 8;
+const ERR_PROOF_ROOT_MISMATCH: i8 = 9;
 
 const DATA_MIN: usize = 54;
 
@@ -83,14 +86,61 @@ fn validate_creation() -> Result<(), i8> {
 
 	// proof_type=1 (reputation-chain-backed): proof_data must be exactly 64 bytes
 	// (proof_root_snapshot[32] + settlement_hash[32]), both non-zero.
+	// The proof_root_snapshot must match a live v1 reputation cell for this agent in cell_deps.
 	if proof_type == 1 {
 		let proof_data = &data[DATA_MIN..];
 		if proof_data.len() != 64 { return Err(ERR_EMPTY_PROOF); }
 		if proof_data[..32].iter().all(|&b| b == 0) { return Err(ERR_EMPTY_PROOF); }
 		if proof_data[32..].iter().all(|&b| b == 0) { return Err(ERR_EMPTY_PROOF); }
+
+		// Cross-reference: verify the proof_root_snapshot matches the agent's reputation cell.
+		let agent_lock_args = &data[2..22];
+		let proof_root_snapshot = &proof_data[..32];
+		if !verify_proof_root_in_cell_deps(agent_lock_args, proof_root_snapshot)? {
+			return Err(ERR_PROOF_ROOT_MISMATCH);
+		}
 	}
 
 	Ok(())
+}
+
+/// Checks cell_deps for a v1 reputation cell whose agent_lock_args matches and
+/// whose proof_root at [46..78] matches `expected_proof_root`.
+///
+/// Reputation v1 data layout: [0] version=1, ..., [26..46] agent_lock_args, [46..78] proof_root.
+/// The cell must have a type script to prevent spoofing.
+fn verify_proof_root_in_cell_deps(
+	agent_lock_args: &[u8],
+	expected_proof_root: &[u8],
+) -> Result<bool, i8> {
+	let mut i = 0;
+	loop {
+		let data = match load_cell_data(i, Source::CellDep) {
+			Ok(d) => d,
+			Err(SysError::IndexOutOfBound) => break,
+			Err(e) => return Err(sys_err(e)),
+		};
+
+		// V1 reputation cell: version=1, at least 110 bytes.
+		if data.len() >= 110 && data[0] == 1 {
+			// Agent lock_args at [26..46] must match.
+			if data[26..46] == *agent_lock_args {
+				// Must have a type script (prevents spoofing with plain data cells).
+				let has_type = load_cell_type_hash(i, Source::CellDep)
+					.map_err(sys_err)?
+					.is_some();
+				if has_type {
+					// proof_root at [46..78].
+					if data[46..78] == *expected_proof_root {
+						return Ok(true);
+					}
+				}
+			}
+		}
+
+		i += 1;
+	}
+	Ok(false)
 }
 
 fn validate_transfer() -> Result<(), i8> {

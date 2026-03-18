@@ -70,8 +70,8 @@ fn encode_capability_data(
 	proof_data: &[u8],
 ) -> Vec<u8> {
 	let mut data = Vec::with_capacity(54 + proof_data.len());
-	data.push(0u8); // version
-	data.push(0u8); // proof_type = attestation
+	data.push(0u8);
+	data.push(0u8);
 	data.extend_from_slice(agent_lock_args);
 	data.extend_from_slice(capability_hash);
 	data.extend_from_slice(proof_data);
@@ -131,8 +131,8 @@ fn encode_capability_data_v1(
 	settlement_hash: &[u8; 32],
 ) -> Vec<u8> {
 	let mut data = Vec::with_capacity(118);
-	data.push(0u8); // version
-	data.push(1u8); // proof_type = 1 (reputation-chain-backed)
+	data.push(0u8);
+	data.push(1u8);
 	data.extend_from_slice(agent_lock_args);
 	data.extend_from_slice(capability_hash);
 	data.extend_from_slice(proof_root);
@@ -140,7 +140,38 @@ fn encode_capability_data_v1(
 	data
 }
 
+/// Finds the agent's reputation cell on-chain by lock_args.
+/// Returns the cell's outpoint as JSON, or None if not found.
+async fn find_reputation_cell_outpoint(
+	state: &AppState,
+	lock_args: &str,
+) -> Result<Option<Value>, TxBuildError> {
+	let type_code_hash = match std::env::var("REPUTATION_TYPE_CODE_HASH") {
+		Ok(v) => v,
+		Err(_) => return Ok(None),
+	};
+
+	let type_script = Script {
+		code_hash: type_code_hash,
+		hash_type: "data1".into(),
+		args: "0x".into(),
+	};
+
+	let cells = state.ckb.get_cells_by_type_script(&type_script, 200).await?;
+
+	for cell in &cells.objects {
+		if cell.output.lock.args.to_lowercase() == lock_args.to_lowercase() {
+			return Ok(Some(json!(cell.out_point)));
+		}
+	}
+
+	Ok(None)
+}
+
 /// Builds a transaction to mint a capability NFT backed by reputation chain evidence.
+///
+/// Includes the agent's reputation cell as a cell_dep so the type script can
+/// cross-reference the proof_root_snapshot against the live on-chain proof_root.
 pub async fn build_mint_capability_v1(
 	state: &AppState,
 	capability_hash: &[u8; 32],
@@ -182,12 +213,22 @@ pub async fn build_mint_capability_v1(
 	let change_capacity = input_capacity - nft_capacity - ESTIMATED_FEE;
 	let witnesses = placeholder_witnesses(inputs.len());
 
+	let mut cell_deps = vec![
+		json!({ "out_point": { "tx_hash": SECP256K1_DEP_TX_HASH, "index": "0x0" }, "dep_type": "dep_group" }),
+		json!({ "out_point": { "tx_hash": dep_tx_hash, "index": "0x0" }, "dep_type": "code" }),
+	];
+
+	if let Some(rep_outpoint) = find_reputation_cell_outpoint(state, &state.lock_args).await? {
+		cell_deps.push(json!({ "out_point": rep_outpoint, "dep_type": "code" }));
+	} else {
+		return Err(TxBuildError::CellNotFound(
+			"agent reputation cell not found — required for proof_type=1 capability NFT".into(),
+		));
+	}
+
 	let tx = json!({
 		"version": "0x0",
-		"cell_deps": [
-			{ "out_point": { "tx_hash": SECP256K1_DEP_TX_HASH, "index": "0x0" }, "dep_type": "dep_group" },
-			{ "out_point": { "tx_hash": dep_tx_hash, "index": "0x0" }, "dep_type": "code" },
-		],
+		"cell_deps": cell_deps,
 		"header_deps": [],
 		"inputs": inputs,
 		"outputs": [
@@ -223,15 +264,12 @@ pub async fn build_mint_capability(
 
 	let agent_lock_args = super::job::parse_lock_args_20(&state.lock_args)?;
 
-	// Create the attestation proof.
 	let proof_data = create_attestation(&state.private_key, &agent_lock_args, capability_hash)?;
 	let nft_data = encode_capability_data(&agent_lock_args, capability_hash, &proof_data);
 
-	// Calculate required capacity based on actual data size.
-	let occupied_bytes = 8 + 53 + 33 + nft_data.len() as u64; // cap + lock + type_script + data
+	let occupied_bytes = 8 + 53 + 33 + nft_data.len() as u64;
 	let nft_capacity = std::cmp::max(occupied_bytes * 100_000_000, CAP_NFT_CELL_MIN);
 
-	// Gather fee inputs.
 	let needed = nft_capacity + ESTIMATED_FEE + MIN_CELL_CAPACITY;
 	let agent_lock = our_lock(state);
 	let cells = state.ckb.get_cells_by_lock(&agent_lock, 200).await?;
@@ -239,7 +277,6 @@ pub async fn build_mint_capability(
 	let mut inputs = Vec::new();
 	let mut input_capacity: u64 = 0;
 	for cell in &cells.objects {
-		// Skip typed cells to avoid consuming protocol cells (job, reputation, etc.).
 		if cell.output.type_script.is_some() {
 			continue;
 		}
