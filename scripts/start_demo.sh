@@ -44,10 +44,52 @@ TTL_BLOCKS="${DEMO_TTL_BLOCKS:-200}"
 [[ -n "${DEMO_WORKER_KEY:-}" ]] || { echo "error: DEMO_WORKER_KEY is not set" >&2; exit 1; }
 [[ -n "${JOB_CELL_TYPE_CODE_HASH:-}" ]] || { echo "error: JOB_CELL_TYPE_CODE_HASH not set — run deploy_contracts.sh first" >&2; exit 1; }
 
+CKB_RPC="${CKB_RPC_URL:-https://testnet.ckb.dev/rpc}"
+
 step()    { echo; echo "── $* ──"; }
 ok()      { echo "   ✓ $*"; }
 pending() { echo "   … $*"; }
 fail()    { echo "   ✗ $*" >&2; exit 1; }
+
+# Wait for a TX to be committed, then wait for its output cell to be indexed.
+# Usage: wait_committed_and_indexed <tx_hash> <output_index> <label>
+wait_committed_and_indexed() {
+	local tx_hash="$1" out_index="${2:-0x0}" label="${3:-cell}"
+
+	pending "Waiting for $label tx to be committed..."
+	for i in $(seq 1 30); do
+		local status
+		status=$(curl -sf -X POST "$CKB_RPC" \
+			-H "Content-Type: application/json" \
+			-d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"get_transaction\",\"params\":[\"$tx_hash\"]}" \
+			| grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
+		if [[ "$status" == "committed" ]]; then
+			ok "$label tx committed (poll $i)"
+			break
+		fi
+		echo "   … poll $i: $status — waiting 6s..."
+		sleep 6
+		if [[ "$i" == "30" ]]; then
+			fail "$label tx not committed after 30 polls"
+		fi
+	done
+
+	pending "Waiting for indexer to pick up $label cell..."
+	for i in $(seq 1 20); do
+		local cell_status
+		cell_status=$(curl -sf -X POST "$CKB_RPC" \
+			-H "Content-Type: application/json" \
+			-d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"get_live_cell\",\"params\":[{\"tx_hash\":\"$tx_hash\",\"index\":\"$out_index\"},false]}" \
+			| grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
+		if [[ "$cell_status" == "live" ]]; then
+			ok "$label cell indexed (poll $i)"
+			return 0
+		fi
+		echo "   … indexer poll $i: $cell_status — waiting 3s..."
+		sleep 3
+	done
+	fail "$label cell not indexed after 60s"
+}
 
 # ── Start poster nerve-core ────────────────────────────────────────────────────
 
@@ -62,9 +104,12 @@ fi
 
 # ── Start poster nerve-core ────────────────────────────────────────────────────
 
+pkill -f "nerve-core" 2>/dev/null || true
+sleep 1
+
 step "Starting poster nerve-core on :$POSTER_PORT"
 AGENT_PRIVATE_KEY="$DEMO_POSTER_KEY" CORE_PORT="$POSTER_PORT" \
-	cargo run -p nerve-core --quiet 2>/tmp/nerve-poster.log &
+	"$ROOT_DIR/target/debug/nerve-core" 2>/tmp/nerve-poster.log &
 POSTER_PID=$!
 echo "   PID: $POSTER_PID"
 sleep 3
@@ -76,7 +121,7 @@ ok "Poster nerve-core running"
 
 step "Starting worker nerve-core on :$WORKER_PORT"
 AGENT_PRIVATE_KEY="$DEMO_WORKER_KEY" CORE_PORT="$WORKER_PORT" \
-	cargo run -p nerve-core --quiet 2>/tmp/nerve-worker.log &
+	"$ROOT_DIR/target/debug/nerve-core" 2>/tmp/nerve-worker.log &
 WORKER_PID=$!
 echo "   PID: $WORKER_PID"
 sleep 3
@@ -120,13 +165,12 @@ JOB_TX_HASH=$(echo "$POST_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4)
 ok "Job posted: $JOB_TX_HASH"
 echo "   Explorer: https://testnet.explorer.nervos.org/transaction/$JOB_TX_HASH"
 
-pending "Waiting 12s for job cell to be indexed..."
-sleep 12
+wait_committed_and_indexed "$JOB_TX_HASH" "0x0" "job"
 
 # ── Flow 2: Reserve ────────────────────────────────────────────────────────────
 
 step "2. Worker: reserving job $JOB_TX_HASH:0"
-RESERVE_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
+RESERVE_RESP=$(curl -sf -X POST "$POSTER_URL/tx/build-and-broadcast" \
 	-H "Content-Type: application/json" \
 	-d "{\"intent\":\"reserve_job\",\"job_tx_hash\":\"$JOB_TX_HASH\",\"job_index\":0,\"worker_lock_args\":\"$WORKER_LOCK_ARGS\"}")
 RESERVE_TX=$(echo "$RESERVE_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4)
@@ -134,10 +178,7 @@ RESERVE_TX=$(echo "$RESERVE_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4)
 ok "Job reserved: $RESERVE_TX"
 echo "   Explorer: https://testnet.explorer.nervos.org/transaction/$RESERVE_TX"
 
-pending "Waiting 12s..."
-sleep 12
-
-# ── Flow 3: Claim ──────────────────────────────────────────────────────────────
+wait_committed_and_indexed "$RESERVE_TX" "0x0" "reserve"
 
 step "3. Worker: claiming job $RESERVE_TX:0"
 CLAIM_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
@@ -155,8 +196,7 @@ if [[ "$NON_INTERACTIVE" != "--non-interactive" ]]; then
 	read -r
 fi
 
-pending "Waiting 12s for claim to be indexed..."
-sleep 12
+wait_committed_and_indexed "$CLAIM_TX" "0x0" "claim"
 
 # ── Flow 4: Complete ───────────────────────────────────────────────────────────
 
@@ -241,8 +281,7 @@ if [[ "$FULL_MODE" == "--full" ]]; then
 		REP_CREATE_TX=$(echo "$REP_CREATE_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
 		if [[ -n "$REP_CREATE_TX" ]]; then
 			ok "Reputation cell: $REP_CREATE_TX"
-			pending "Waiting 12s for indexing..."
-			sleep 12
+			wait_committed_and_indexed "$REP_CREATE_TX" "0x0" "reputation"
 
 			pending "Proposing reputation update (type=1, 10-block window)"
 			PROPOSE_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
