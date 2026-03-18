@@ -40,6 +40,9 @@ usage() {
 nerve — NERVE agent CLI
 
 Usage:
+  nerve init                                         Check prerequisites and environment.
+  nerve status                                       System-wide status dashboard.
+  nerve status --job <tx_hash>:<index>               Single job status (legacy).
   nerve balance
   nerve jobs [--status Open|Reserved|Claimed] [--capability 0x...]
   nerve post --reward <CKB> [--ttl <blocks>] [--capability <0x...>]
@@ -47,7 +50,6 @@ Usage:
   nerve claim --job <tx_hash>:<index>
   nerve complete --job <tx_hash>:<index> --worker <lock_args>
   nerve cancel --job <tx_hash>:<index>
-  nerve status --job <tx_hash>:<index>
   nerve tx --hash <tx_hash>
   nerve swap --pool <tx_hash>:<index> --amount <CKB> [--slippage <bps>]
   nerve create-pool --seed-ckb <CKB> --seed-tokens <amount>
@@ -92,6 +94,175 @@ parse_job_ref() {
 	local ref="$1"
 	JOB_TX_HASH="${ref%%:*}"
 	JOB_INDEX="${ref##*:}"
+}
+
+# ── Init & Status ─────────────────────────────────────────────────────────────
+
+cmd_init() {
+	local ok_count=0 fail_count=0
+
+	check() {
+		local label="$1" result="$2"
+		if [[ "$result" == "ok" ]]; then
+			echo "  [ok] $label"
+			((ok_count++))
+		else
+			echo "  [!!] $label — $result"
+			((fail_count++))
+		fi
+	}
+
+	echo "nerve init — checking prerequisites"
+	echo
+
+	# Required CLI tools.
+	for tool in curl jq bc; do
+		if command -v "$tool" &>/dev/null; then
+			check "$tool" "ok"
+		else
+			check "$tool" "not found in PATH"
+		fi
+	done
+
+	# nerve-core binary.
+	if [[ -x "$SCRIPT_DIR/../target/debug/nerve-core" ]] || command -v nerve-core &>/dev/null; then
+		check "nerve-core binary" "ok"
+	else
+		check "nerve-core binary" "not found (build with cargo build -p nerve-core)"
+	fi
+
+	# CKB RPC reachability.
+	local ckb_rpc="${CKB_RPC_URL:-https://testnet.ckb.dev/rpc}"
+	if curl -sf --max-time 5 -X POST "$ckb_rpc" \
+		-H "Content-Type: application/json" \
+		-d '{"jsonrpc":"2.0","id":1,"method":"get_tip_block_number","params":[]}' \
+		| grep -q '"result"' 2>/dev/null; then
+		check "CKB RPC ($ckb_rpc)" "ok"
+	else
+		check "CKB RPC ($ckb_rpc)" "unreachable"
+	fi
+
+	# .env.deployed with contract code hashes.
+	local env_deployed="$SCRIPT_DIR/../.env.deployed"
+	if [[ -f "$env_deployed" ]]; then
+		local missing_hashes=""
+		for var in AGENT_IDENTITY_TYPE_CODE_HASH JOB_CELL_TYPE_CODE_HASH REPUTATION_TYPE_CODE_HASH CAP_NFT_TYPE_CODE_HASH; do
+			if ! grep -q "^${var}=" "$env_deployed" 2>/dev/null; then
+				missing_hashes="${missing_hashes:+$missing_hashes, }$var"
+			fi
+		done
+		if [[ -z "$missing_hashes" ]]; then
+			check ".env.deployed (4 code hashes)" "ok"
+		else
+			check ".env.deployed" "missing: $missing_hashes"
+		fi
+	else
+		check ".env.deployed" "file not found"
+	fi
+
+	# Fiber node (optional).
+	local fiber_rpc="${FIBER_RPC_URL:-http://127.0.0.1:8227}"
+	if curl -sf --max-time 3 -X POST "$fiber_rpc" \
+		-H "Content-Type: application/json" \
+		-d '{"jsonrpc":"2.0","id":1,"method":"node_info","params":[]}' \
+		| grep -q '"result"' 2>/dev/null; then
+		check "Fiber node ($fiber_rpc)" "ok"
+	else
+		echo "  [--] Fiber node ($fiber_rpc) — unavailable (optional)"
+	fi
+
+	echo
+	echo "  $ok_count passed, $fail_count failed"
+	[[ "$fail_count" -eq 0 ]] || exit 1
+}
+
+cmd_system_status() {
+	echo "nerve status — system dashboard"
+	echo
+
+	# CKB block height.
+	local ckb_rpc="${CKB_RPC_URL:-https://testnet.ckb.dev/rpc}"
+	local height
+	height=$(curl -sf --max-time 5 -X POST "$ckb_rpc" \
+		-H "Content-Type: application/json" \
+		-d '{"jsonrpc":"2.0","id":1,"method":"get_tip_block_number","params":[]}' \
+		| grep -o '"result":"[^"]*"' | cut -d'"' -f4) || true
+	if [[ -n "$height" ]]; then
+		echo "  CKB height:    $height ($(printf '%d' "$height"))"
+	else
+		echo "  CKB height:    unavailable"
+	fi
+
+	# Agent balance.
+	local bal
+	bal=$(curl -sf --max-time 5 "$CORE_URL/agent/balance" 2>/dev/null) || true
+	if [[ -n "$bal" ]]; then
+		local bal_ckb lock_args
+		bal_ckb=$(echo "$bal" | grep -o '"balance_ckb":[0-9.]*' | cut -d: -f2) || true
+		lock_args=$(echo "$bal" | grep -o '"lock_args":"[^"]*"' | cut -d'"' -f4) || true
+		echo "  Agent:         ${lock_args:-unknown}"
+		echo "  Balance:       ${bal_ckb:-0} CKB"
+	else
+		echo "  Agent:         nerve-core not reachable"
+	fi
+
+	# Deployed contract hashes.
+	local env_deployed="$SCRIPT_DIR/../.env.deployed"
+	if [[ -f "$env_deployed" ]]; then
+		echo "  Contracts:"
+		for var in AGENT_IDENTITY_TYPE_CODE_HASH JOB_CELL_TYPE_CODE_HASH REPUTATION_TYPE_CODE_HASH CAP_NFT_TYPE_CODE_HASH; do
+			local val
+			val=$(grep "^${var}=" "$env_deployed" 2>/dev/null | cut -d= -f2) || true
+			if [[ -n "$val" ]]; then
+				echo "    $var = ${val:0:18}..."
+			else
+				echo "    $var = (not set)"
+			fi
+		done
+	else
+		echo "  Contracts:     .env.deployed not found"
+	fi
+
+	# Fiber node status.
+	local fiber_rpc="${FIBER_RPC_URL:-http://127.0.0.1:8227}"
+	if curl -sf --max-time 3 -X POST "$fiber_rpc" \
+		-H "Content-Type: application/json" \
+		-d '{"jsonrpc":"2.0","id":1,"method":"node_info","params":[]}' \
+		| grep -q '"result"' 2>/dev/null; then
+		echo "  Fiber:         ready"
+	else
+		echo "  Fiber:         unavailable"
+	fi
+
+	# MCP bridge health.
+	if curl -sf --max-time 3 "$MCP_URL/health" | grep -q '"ok"' 2>/dev/null; then
+		echo "  MCP bridge:    healthy ($MCP_URL)"
+	else
+		echo "  MCP bridge:    not reachable ($MCP_URL)"
+	fi
+
+	# Open job count.
+	local jobs_resp
+	jobs_resp=$(curl -sf --max-time 5 "$MCP_URL/jobs?status=Open" 2>/dev/null) || true
+	if [[ -n "$jobs_resp" ]]; then
+		local count
+		count=$(echo "$jobs_resp" | grep -o '"count":[0-9]*' | cut -d: -f2) || true
+		echo "  Open jobs:     ${count:-0}"
+	else
+		echo "  Open jobs:     unavailable"
+	fi
+
+	# Agent reputation.
+	if [[ -n "$lock_args" ]]; then
+		local rep_resp
+		rep_resp=$(curl -sf --max-time 5 "$MCP_URL/agents/$lock_args/reputation" 2>/dev/null) || true
+		if [[ -n "$rep_resp" ]]; then
+			local completed abandoned
+			completed=$(echo "$rep_resp" | grep -o '"jobs_completed":[0-9]*' | cut -d: -f2) || true
+			abandoned=$(echo "$rep_resp" | grep -o '"jobs_abandoned":[0-9]*' | cut -d: -f2) || true
+			echo "  Reputation:    ${completed:-0} completed, ${abandoned:-0} abandoned"
+		fi
+	fi
 }
 
 # ── Subcommands ────────────────────────────────────────────────────────────────
@@ -186,16 +357,16 @@ cmd_cancel() {
 }
 
 cmd_status() {
-	local job=""
-	while [[ $# -gt 0 ]]; do
-		case "$1" in
-			--job) job="$2"; shift 2 ;;
-			*) echo "error: unknown argument: $1" >&2; exit 1 ;;
-		esac
-	done
-	require_arg "--job" "$job"
-	parse_job_ref "$job"
-	pretty "$(curl -sf "$MCP_URL/jobs/$JOB_TX_HASH/$JOB_INDEX")"
+	# If --job flag is present, dispatch to single-job status (legacy).
+	if [[ "${1:-}" == "--job" ]]; then
+		local job="${2:-}"
+		require_arg "--job" "$job"
+		parse_job_ref "$job"
+		pretty "$(curl -sf "$MCP_URL/jobs/$JOB_TX_HASH/$JOB_INDEX")"
+		return
+	fi
+	# Otherwise show system-wide status.
+	cmd_system_status
 }
 
 cmd_tx() {
@@ -299,6 +470,7 @@ COMMAND="${1:-}"
 shift || true
 
 case "$COMMAND" in
+	init)     cmd_init     "$@" ;;
 	balance)  cmd_balance  "$@" ;;
 	jobs)     cmd_jobs     "$@" ;;
 	post)     cmd_post     "$@" ;;
