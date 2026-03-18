@@ -32,11 +32,11 @@ step() { echo; echo "── $* ──"; }
 ok()   { echo "   OK: $*"; }
 fail() { echo "   FAIL: $*" >&2; exit 1; }
 
-# ── Preflight checks ────────────────────────────────────────────────────────
+# Preflight checks
 
 command -v "$FNN_BIN" >/dev/null 2>&1 || fail "fnn binary not found. Install from https://github.com/nervosnetwork/fiber/releases"
 
-# ── Reset ────────────────────────────────────────────────────────────────────
+# Reset
 
 if [[ "$RESET" == "--reset" ]]; then
 	step "Resetting Fiber data dir"
@@ -46,7 +46,7 @@ fi
 
 mkdir -p "$DATA_DIR/ckb" "$DATA_DIR/fiber"
 
-# ── Write config ─────────────────────────────────────────────────────────────
+# Write config
 
 step "Writing Fiber node config"
 cat > "$DATA_DIR/config.yml" <<YAML
@@ -106,7 +106,7 @@ services:
 YAML
 ok "Config written to $DATA_DIR/config.yml"
 
-# ── Import key (if AGENT_PRIVATE_KEY is set) ────────────────────────────────
+# Import key (if AGENT_PRIVATE_KEY is set)
 
 if [[ -n "${AGENT_PRIVATE_KEY:-}" ]]; then
 	# fnn reads a plaintext key from ckb/key on first start, then encrypts it
@@ -121,7 +121,7 @@ if [[ -n "${AGENT_PRIVATE_KEY:-}" ]]; then
 	fi
 fi
 
-# ── Stop existing instance ──────────────────────────────────────────────────
+# Stop existing instance
 
 if pgrep -f "fnn.*fiber-data" >/dev/null 2>&1; then
 	step "Stopping existing fnn process"
@@ -130,7 +130,7 @@ if pgrep -f "fnn.*fiber-data" >/dev/null 2>&1; then
 	ok "Stopped"
 fi
 
-# ── Start Fiber node ────────────────────────────────────────────────────────
+# Start Fiber node
 
 step "Starting Fiber node (fnn)"
 FIBER_SECRET_KEY_PASSWORD="$KEY_PASSWORD" RUST_LOG=info \
@@ -141,7 +141,7 @@ FIBER_SECRET_KEY_PASSWORD="$KEY_PASSWORD" RUST_LOG=info \
 FNN_PID=$!
 ok "fnn started with PID $FNN_PID"
 
-# ── Wait for RPC ─────────────────────────────────────────────────────────────
+# Wait for RPC
 
 step "Waiting for Fiber RPC to be ready"
 for i in $(seq 1 20); do
@@ -161,7 +161,7 @@ for i in $(seq 1 20); do
 	sleep 3
 done
 
-# ── Fetch node info ──────────────────────────────────────────────────────────
+# Fetch node info
 
 step "Fetching node info"
 NODE_INFO=$(curl -sf -X POST "http://127.0.0.1:${RPC_PORT}" \

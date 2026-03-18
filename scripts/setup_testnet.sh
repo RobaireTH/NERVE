@@ -44,13 +44,13 @@ wait_tx() {
 	sleep 15
 }
 
-# ── Step 1: Deploy contracts ─────────────────────────────────────────────────
+# Step 1: Deploy contracts
 
 step "Step 1: Deploying all contracts"
 "$SCRIPT_DIR/deploy_contracts.sh" all
 source "$ROOT_DIR/.env.deployed"
 
-# ── Step 2: Spawn poster agent identity ──────────────────────────────────────
+# Step 2: Spawn poster agent identity
 
 step "Step 2: Spawning poster agent identity (limit=20 CKB/tx, daily=200 CKB)"
 POSTER_SPAWN_TX=$(post_tx "$POSTER_URL" \
@@ -59,7 +59,7 @@ POSTER_SPAWN_TX=$(post_tx "$POSTER_URL" \
 ok "Poster identity: $POSTER_SPAWN_TX:0"
 wait_tx
 
-# ── Step 3: Spawn worker agent identity ──────────────────────────────────────
+# Step 3: Spawn worker agent identity
 
 step "Step 3: Spawning worker agent identity (limit=20 CKB/tx, daily=200 CKB)"
 WORKER_SPAWN_TX=$(post_tx "$WORKER_URL" \
@@ -68,7 +68,7 @@ WORKER_SPAWN_TX=$(post_tx "$WORKER_URL" \
 ok "Worker identity: $WORKER_SPAWN_TX:0"
 wait_tx
 
-# ── Step 4: Create reputation cells ──────────────────────────────────────────
+# Step 4: Create reputation cells
 
 step "Step 4: Creating poster reputation cell"
 POSTER_REP_TX=$(post_tx "$POSTER_URL" '{"intent":"create_reputation"}') \
@@ -82,7 +82,7 @@ WORKER_REP_TX=$(post_tx "$WORKER_URL" '{"intent":"create_reputation"}') \
 ok "Worker reputation: $WORKER_REP_TX:0"
 wait_tx
 
-# ── Step 5.5: Spawn sub-agent under poster ───────────────────────────────────
+# Step 5.5: Spawn sub-agent under poster
 
 step "Step 5.5: Spawning sub-agent under poster (10% revenue share)"
 SUB_AGENT_TX=$(post_tx "$POSTER_URL" \
@@ -91,7 +91,7 @@ SUB_AGENT_TX=$(post_tx "$POSTER_URL" \
 ok "Sub-agent identity: $SUB_AGENT_TX:0"
 wait_tx
 
-# ── Step 6: Mint capability NFT for worker ───────────────────────────────────
+# Step 6: Mint capability NFT for worker
 
 step "Step 7: Minting capability NFT for worker (text_summarize)"
 # blake2b("text_summarize") — hardcoded for demo.
@@ -109,7 +109,7 @@ CAP_TX=$(post_tx "$WORKER_URL" \
 	|| fail "mint_capability failed"
 ok "Capability NFT: $CAP_TX:0"
 
-# ── Step 8: Fiber Network via fiber-pay (optional) ──────────────────────────
+# Step 8: Fiber Network via fiber-pay (optional)
 
 FIBER_STATUS="skipped"
 
@@ -165,7 +165,7 @@ else
 	FIBER_STATUS="unavailable"
 fi
 
-# ── Summary ───────────────────────────────────────────────────────────────────
+# Summary
 
 echo
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

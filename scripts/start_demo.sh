@@ -38,7 +38,7 @@ MCP_URL="${MCP_URL:-http://localhost:8081}"
 REWARD_CKB="${DEMO_REWARD_CKB:-62}"
 TTL_BLOCKS="${DEMO_TTL_BLOCKS:-200}"
 
-# ── Validation ─────────────────────────────────────────────────────────────────
+# Validation
 
 [[ -n "${DEMO_POSTER_KEY:-}" ]] || { echo "error: DEMO_POSTER_KEY is not set" >&2; exit 1; }
 [[ -n "${DEMO_WORKER_KEY:-}" ]] || { echo "error: DEMO_WORKER_KEY is not set" >&2; exit 1; }
@@ -91,9 +91,9 @@ wait_committed_and_indexed() {
 	fail "$label cell not indexed after 60s"
 }
 
-# ── Start poster nerve-core ────────────────────────────────────────────────────
+# Start poster nerve-core
 
-# ── Clean mode: stop any running instances ────────────────────────────────────
+# Clean mode: stop any running instances
 
 if [[ "$CLEAN_MODE" == "--clean" ]]; then
 	step "Clean mode: stopping running nerve-core instances"
@@ -102,7 +102,7 @@ if [[ "$CLEAN_MODE" == "--clean" ]]; then
 	ok "Previous instances stopped"
 fi
 
-# ── Start poster nerve-core ────────────────────────────────────────────────────
+# Start poster nerve-core
 
 pkill -f "nerve-core" 2>/dev/null || true
 sleep 1
@@ -117,7 +117,7 @@ sleep 3
 curl -sf "$POSTER_URL/health" | grep -q '"status":"ok"' || fail "poster nerve-core not healthy"
 ok "Poster nerve-core running"
 
-# ── Start worker nerve-core ────────────────────────────────────────────────────
+# Start worker nerve-core
 
 step "Starting worker nerve-core on :$WORKER_PORT"
 AGENT_PRIVATE_KEY="$DEMO_WORKER_KEY" CORE_PORT="$WORKER_PORT" \
@@ -134,7 +134,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# ── Fetch worker lock_args ─────────────────────────────────────────────────────
+# Fetch worker lock_args
 
 step "Fetching worker lock_args"
 WORKER_BALANCE=$(curl -sf "$WORKER_URL/agent/balance")
@@ -142,7 +142,7 @@ WORKER_LOCK_ARGS=$(echo "$WORKER_BALANCE" | grep -o '"lock_args":"[^"]*"' | cut 
 [[ -n "$WORKER_LOCK_ARGS" ]] || fail "could not read worker lock_args"
 ok "Worker lock_args: $WORKER_LOCK_ARGS"
 
-# ── Pre-flight balance check ───────────────────────────────────────────────────
+# Pre-flight balance check
 
 step "Checking balances"
 POSTER_BAL=$(curl -sf "$POSTER_URL/agent/balance" | grep -o '"balance_ckb":[0-9.]*' | cut -d: -f2)
@@ -153,7 +153,7 @@ echo "   Worker: $WORKER_BAL CKB"
 NEEDED=$(echo "$REWARD_CKB + 185 + 2" | bc)
 echo "   Need (poster): ~$NEEDED CKB for job cell (184 overhead + $REWARD_CKB reward + fee)"
 
-# ── Flow 1: Post Job ───────────────────────────────────────────────────────────
+# Flow 1: Post Job
 
 step "1. Poster: posting job ($REWARD_CKB CKB reward, TTL $TTL_BLOCKS blocks)"
 CAPABILITY="0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -167,7 +167,7 @@ echo "   Explorer: https://testnet.explorer.nervos.org/transaction/$JOB_TX_HASH"
 
 wait_committed_and_indexed "$JOB_TX_HASH" "0x0" "job"
 
-# ── Flow 2: Reserve ────────────────────────────────────────────────────────────
+# Flow 2: Reserve
 
 step "2. Worker: reserving job $JOB_TX_HASH:0"
 RESERVE_RESP=$(curl -sf -X POST "$POSTER_URL/tx/build-and-broadcast" \
@@ -198,7 +198,7 @@ fi
 
 wait_committed_and_indexed "$CLAIM_TX" "0x0" "claim"
 
-# ── Flow 4: Complete ───────────────────────────────────────────────────────────
+# Flow 4: Complete
 
 step "4. Poster: completing job $CLAIM_TX:0 (routes $REWARD_CKB CKB to worker)"
 COMPLETE_RESP=$(curl -sf -X POST "$POSTER_URL/tx/build-and-broadcast" \
@@ -211,14 +211,14 @@ echo "   Explorer: https://testnet.explorer.nervos.org/transaction/$COMPLETE_TX"
 
 ok "Flow 1 complete: Agent Marketplace"
 
-# ── Flow 2: DeFi (UTXOSwap) ───────────────────────────────────────────────────
+# Flow 2: DeFi (UTXOSwap)
 
 echo
 echo "── FLOW 2: DeFi (UTXOSwap) ──"
 echo "   DeFi swaps use UTXOSwap via the defi-worker agent skill."
 echo "   Run: node packages/agent/skills/defi-worker/scripts/utxoswap.mjs --help"
 
-# ── Flow 3: Capability Proof ──────────────────────────────────────────────────
+# Flow 3: Capability Proof
 
 CAP_TX=""
 if [[ -n "${CAP_NFT_TYPE_CODE_HASH:-}" ]]; then
@@ -244,13 +244,13 @@ else
 	echo "   Deploy capability_nft contract to enable."
 fi
 
-# ── Full-mode flows (4-7) ────────────────────────────────────────────────────
+# Full-mode flows (4-7)
 
 REP_TX="" BADGE_TX="" FIBER_TX="" DISCOVERY_OK=""
 
 if [[ "$FULL_MODE" == "--full" ]]; then
 
-	# ── Flow 4: Reputation ────────────────────────────────────────────────────
+	# Flow 4: Reputation
 
 	REP_CREATE_TX=""
 	if [[ -n "${REPUTATION_TYPE_CODE_HASH:-}" ]]; then
@@ -297,7 +297,7 @@ if [[ "$FULL_MODE" == "--full" ]]; then
 		echo "   Deploy reputation contract to enable."
 	fi
 
-	# ── Flow 5: Badge Minting ────────────────────────────────────────────────
+	# Flow 5: Badge Minting
 
 	if [[ -n "${DOB_BADGE_CODE_HASH:-}" && -n "$COMPLETE_TX" ]]; then
 		step "FLOW 5: Badge Minting"
@@ -318,7 +318,7 @@ if [[ "$FULL_MODE" == "--full" ]]; then
 		echo "   Set DOB_BADGE_CODE_HASH to enable."
 	fi
 
-	# ── Flow 6: Fiber Payment ────────────────────────────────────────────────
+	# Flow 6: Fiber Payment
 
 	FIBER_RPC="${FIBER_RPC_URL:-http://127.0.0.1:8227}"
 	if curl -sf --max-time 3 -X POST "$FIBER_RPC" \
@@ -343,7 +343,7 @@ if [[ "$FULL_MODE" == "--full" ]]; then
 		echo "   Fiber node not available."
 	fi
 
-	# ── Flow 7: Agent Discovery ──────────────────────────────────────────────
+	# Flow 7: Agent Discovery
 
 	step "FLOW 7: Agent Discovery"
 	pending "Calling /discover/workers"
@@ -368,7 +368,7 @@ if [[ "$FULL_MODE" == "--full" ]]; then
 
 fi
 
-# ── Summary ────────────────────────────────────────────────────────────────────
+# Summary
 
 echo
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

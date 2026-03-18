@@ -19,7 +19,7 @@ step()    { echo; echo "── $* ──"; }
 ok()      { echo "   ✓ $*"; }
 fail()    { echo "   ✗ $*" >&2; exit 1; }
 
-# ── Service Health Checks ────────────────────────────────────────────────────
+# Service Health Checks
 
 step "Checking nerve-core ($CORE_URL)"
 curl -sf "$CORE_URL/health" | grep -q '"status":"ok"' || fail "nerve-core not running on $CORE_URL"
@@ -29,13 +29,13 @@ step "Checking nerve-mcp bridge ($MCP_URL)"
 curl -sf "$MCP_URL/health" | grep -q '"status":"ok"' || fail "nerve-mcp not running on $MCP_URL"
 ok "nerve-mcp healthy"
 
-# ── Contract Deployment Check ────────────────────────────────────────────────
+# Contract Deployment Check
 
 step "Checking deployed contracts"
 [[ -n "${JOB_CELL_TYPE_CODE_HASH:-}" ]] || fail "JOB_CELL_TYPE_CODE_HASH not set"
 ok "Job cell type script: ${JOB_CELL_TYPE_CODE_HASH:0:18}..."
 
-# ── Telegram Config Check ────────────────────────────────────────────────────
+# Telegram Config Check
 
 step "Checking Telegram config"
 if [[ -n "${OPENCLAW_TELEGRAM_TOKEN:-}" ]]; then
@@ -44,7 +44,7 @@ else
 	fail "OPENCLAW_TELEGRAM_TOKEN not set — configure in .env"
 fi
 
-# ── Balance Check ────────────────────────────────────────────────────────────
+# Balance Check
 
 step "Agent balance"
 BALANCE=$(curl -sf "$CORE_URL/agent/balance")
@@ -53,7 +53,7 @@ BAL_CKB=$(echo "$BALANCE" | grep -o '"balance_ckb":[0-9.]*' | cut -d: -f2)
 echo "   Lock args: $LOCK_ARGS"
 echo "   Balance:   $BAL_CKB CKB"
 
-# ── Post a Test Job for Heartbeat ────────────────────────────────────────────
+# Post a Test Job for Heartbeat
 
 step "Posting a test job (62 CKB, 200 blocks TTL)"
 CAPABILITY="0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -69,7 +69,7 @@ else
 	echo "   ⚠ Could not post test job (may need more CKB): $POST_RESP"
 fi
 
-# ── Instructions ─────────────────────────────────────────────────────────────
+# Instructions
 
 echo
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

@@ -59,7 +59,7 @@ wait_committed_and_indexed() {
 	fail "$label cell not indexed after 60s"
 }
 
-# ── Pre-flight ────────────────────────────────────────────────────────────────
+# Pre-flight
 
 step "Pre-flight checks"
 curl -sf "$CORE_URL/health" | grep -q '"status":"ok"' || fail "nerve-core not running"
@@ -72,7 +72,7 @@ BALANCE=$(curl -sf "$CORE_URL/agent/balance")
 BAL_CKB=$(echo "$BALANCE" | grep -o '"balance_ckb":[0-9.]*' | cut -d: -f2)
 echo "   Balance: $BAL_CKB CKB"
 
-# ── Step 1: Spawn agent identity with 5 CKB per-tx limit ─────────────────────
+# Step 1: Spawn agent identity with 5 CKB per-tx limit
 
 step "1. Spawning agent identity (spending_limit=5 CKB, daily_limit=50 CKB)"
 SPAWN_RESP=$(curl -sf -X POST "$CORE_URL/tx/build-and-broadcast" \
@@ -88,7 +88,7 @@ echo "   Explorer: https://testnet.explorer.nervos.org/transaction/$SPAWN_TX"
 
 wait_committed_and_indexed "$SPAWN_TX" "0x0" "identity"
 
-# ── Step 2: Attempt 10 CKB transfer (should fail) ────────────────────────────
+# Step 2: Attempt 10 CKB transfer (should fail)
 
 step "2. Attempting 10 CKB transfer (should FAIL — exceeds 5 CKB limit)"
 
@@ -108,7 +108,7 @@ else
 	echo "   the type script won't run. This test validates the error path."
 fi
 
-# ── Step 3: Attempt 3 CKB transfer (should succeed) ──────────────────────────
+# Step 3: Attempt 3 CKB transfer (should succeed)
 
 step "3. Attempting 3 CKB transfer (should SUCCEED — within 5 CKB limit)"
 SMALL_RESP=$(curl -sf -X POST "$CORE_URL/tx/build-and-broadcast" \
@@ -124,7 +124,7 @@ else
 	echo "   Note: transfer may fail for other reasons (e.g., insufficient balance)."
 fi
 
-# ── Summary ───────────────────────────────────────────────────────────────────
+# Summary
 
 echo
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

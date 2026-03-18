@@ -82,7 +82,7 @@ wait_committed_and_indexed() {
 [[ -n "${DEMO_WORKER_KEY:-}" ]] || { echo "error: DEMO_WORKER_KEY not set" >&2; exit 1; }
 [[ -n "${JOB_CELL_TYPE_CODE_HASH:-}" ]] || { echo "error: JOB_CELL_TYPE_CODE_HASH not set" >&2; exit 1; }
 
-# ── Start instances ──────────────────────────────────────────────────────────
+# Start instances
 
 echo "Starting poster nerve-core on :$POSTER_PORT"
 AGENT_PRIVATE_KEY="$DEMO_POSTER_KEY" CORE_PORT="$POSTER_PORT" \
@@ -112,7 +112,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# ── Health checks ────────────────────────────────────────────────────────────
+# Health checks
 
 section "Health Checks"
 
@@ -128,7 +128,7 @@ else
 	fail "worker health endpoint"
 fi
 
-# ── Get worker lock_args ─────────────────────────────────────────────────────
+# Get worker lock_args
 
 WORKER_BALANCE=$(curl -sf "$WORKER_URL/agent/balance")
 WORKER_LOCK_ARGS=$(echo "$WORKER_BALANCE" | grep -o '"lock_args":"[^"]*"' | cut -d'"' -f4)
@@ -146,7 +146,7 @@ else
 	exit 1
 fi
 
-# ── FLOW 0: Identity ─────────────────────────────────────────────────────────
+# FLOW 0: Identity
 
 section "FLOW 0: Identity Spawn"
 
@@ -178,7 +178,7 @@ else
 	skip "AGENT_IDENTITY_TYPE_CODE_HASH not set"
 fi
 
-# ── FLOW 1: Agent Marketplace ───────────────────────────────────────────────
+# FLOW 1: Agent Marketplace
 
 section "FLOW 1: Agent Marketplace"
 
@@ -243,13 +243,13 @@ NEW_WORKER_BAL=$(curl -sf "$WORKER_URL/agent/balance" | grep -o '"balance_ckb":[
 echo "  Worker balance after completion: $NEW_WORKER_BAL CKB"
 pass "flow 1 finished (worker balance: $WORKER_BAL → $NEW_WORKER_BAL)"
 
-# ── FLOW 2: DeFi Swap ───────────────────────────────────────────────────────
+# FLOW 2: DeFi Swap
 
 section "FLOW 2: DeFi (UTXOSwap)"
 
 skip "UTXOSwap DeFi tested via agent skills, not integration test"
 
-# ── FLOW 3: Capability NFT ──────────────────────────────────────────────────
+# FLOW 3: Capability NFT
 
 section "FLOW 3: Capability NFT"
 
@@ -270,7 +270,7 @@ else
 	skip "CAP_NFT_TYPE_CODE_HASH not set"
 fi
 
-# ── Reputation flow ──────────────────────────────────────────────────────────
+# Reputation flow
 
 section "Reputation Lifecycle"
 
@@ -317,7 +317,7 @@ else
 	skip "REPUTATION_TYPE_CODE_HASH not set"
 fi
 
-# ── Badge mint ───────────────────────────────────────────────────────────────
+# Badge mint
 
 section "Badge Mint"
 
@@ -336,7 +336,7 @@ else
 	skip "DOB_BADGE_CODE_HASH not set or no completed job"
 fi
 
-# ── Sub-agent ────────────────────────────────────────────────────────────────
+# Sub-agent
 
 section "Sub-Agent Delegation"
 

@@ -34,7 +34,7 @@ MCP_URL="${MCP_URL:-http://localhost:8081}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
+# Helpers
 
 usage() {
 	cat <<'EOF'
@@ -98,7 +98,7 @@ parse_job_ref() {
 	JOB_INDEX="${ref##*:}"
 }
 
-# ── Init & Status ─────────────────────────────────────────────────────────────
+# Init & Status
 
 cmd_init() {
 	local ok_count=0 fail_count=0
@@ -409,7 +409,7 @@ cmd_join() {
 	echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
-# ── Subcommands ────────────────────────────────────────────────────────────────
+# Subcommands
 
 cmd_balance() {
 	pretty "$(curl -sf "$CORE_URL/agent/balance")"
@@ -608,7 +608,7 @@ cmd_telegram() {
 	exec "$SCRIPT_DIR/test_telegram_demo.sh" "$@"
 }
 
-# ── Dispatch ───────────────────────────────────────────────────────────────────
+# Dispatch
 
 COMMAND="${1:-}"
 shift || true
