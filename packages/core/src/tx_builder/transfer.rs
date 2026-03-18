@@ -19,6 +19,15 @@ pub async fn build_transfer(
 	to_lock_args: &str,
 	amount_shannons: u64,
 ) -> Result<(Value, String), TxBuildError> {
+	let args_bytes = hex::decode(to_lock_args.trim_start_matches("0x"))
+		.map_err(|e| TxBuildError::InvalidLockArgs(format!("bad hex: {e}")))?;
+	if args_bytes.len() != 20 {
+		return Err(TxBuildError::InvalidLockArgs(format!(
+			"lock_args must be 20 bytes, got {}",
+			args_bytes.len()
+		)));
+	}
+
 	if amount_shannons < MIN_CELL_CAPACITY {
 		return Err(TxBuildError::InsufficientCapacity {
 			need: MIN_CELL_CAPACITY,
