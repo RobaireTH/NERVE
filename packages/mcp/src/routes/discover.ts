@@ -344,7 +344,6 @@ router.get('/join', (_req, res) => {
 		CAP_NFT_TYPE_CODE_HASH: CAP_NFT_TYPE_CODE_HASH || undefined,
 		JOB_CELL_TYPE_CODE_HASH: process.env.JOB_CELL_TYPE_CODE_HASH || undefined,
 		DOB_BADGE_CODE_HASH: process.env.DOB_BADGE_CODE_HASH || undefined,
-		AMM_POOL_TYPE_CODE_HASH: process.env.AMM_POOL_TYPE_CODE_HASH || undefined,
 	};
 
 	// Strip undefined entries.

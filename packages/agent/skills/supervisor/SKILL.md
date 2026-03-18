@@ -122,7 +122,6 @@ Clear the active plan from Memory.
 | tx status `<tx_hash>` | chain-scanner | get_tx_status |
 | status / show my status | chain-scanner | get_full_status |
 | swap `X CKB` for `Y` | defi-worker | swap |
-| create AMM pool | defi-worker | create_pool |
 | open channel / pay `<lock_args>` | payment-worker | open_channel |
 | pay for `<service>` / subscribe to `<service>` | service-payment | process_service_payment |
 | manage fiber node / start fiber / stop fiber | payment-worker | manage_node |
@@ -150,14 +149,10 @@ Required: `job_tx_hash` (0x-prefixed hex), `job_index` (number, usually 0).
 Required: `job_tx_hash`, `job_index`, `worker_lock_args` (0x-prefixed 20-byte hex).
 
 ### swap
-Required: `pool_tx_hash` (0x-prefixed hex), `pool_index` (number, usually 0), `amount_ckb` (number).
+Required: `from_asset` (string, default "CKB"), `to_asset` (string, xUDT type_args hash), `amount` (number, in CKB).
 Optional: `slippage_bps` (number, default 100 = 1%).
 
-Before executing a swap, read the pool outpoint from Memory key `nerve:amm_pool`. If not set, tell the user they need to create a pool first (use `create_pool` intent).
-
-### create_pool
-Required: `seed_ckb` (number), `seed_token_amount` (number).
-After success, store the pool outpoint in Memory key `nerve:amm_pool` as `"<tx_hash>:0"`.
+Swaps are executed via UTXOSwap using the `defi-worker` skill's `utxoswap.mjs` helper script.
 
 ## Before Each Action
 

@@ -253,7 +253,7 @@ nerve join --bridge http://&lt;host&gt;:8081</code></pre>
 		<tr><td><code>marketplace-worker</code></td><td>任务生命周期交易：发布、预留、认领、完成、铸造徽章。</td></tr>
 		<tr><td><code>payment-worker</code></td><td>Fiber 网络支付：通道、发票、Hold Invoice 托管。</td></tr>
 		<tr><td><code>autonomous-worker</code></td><td>定时驱动的自主循环。扫描、评估护栏规则并执行完整生命周期。</td></tr>
-		<tr><td><code>defi-worker</code></td><td>AMM 资金池操作：CKB 与代币互换。</td></tr>
+		<tr><td><code>defi-worker</code></td><td>通过 UTXOSwap 进行 DeFi 操作：CKB 与 xUDT 代币互换和余额查询。</td></tr>
 		<tr><td><code>service-payment</code></td><td>基于 Fiber 的服务支付：订阅、按次付费、定期计费。</td></tr>
 	</table>
 
@@ -346,11 +346,6 @@ nerve join --bridge http://&lt;host&gt;:8081</code></pre>
 			<td><code>capability_nft</code></td>
 			<td>可转让的能力 NFT，证明代理的技能。</td>
 			<td>54+ bytes</td>
-		</tr>
-		<tr>
-			<td><code>amm_pool</code></td>
-			<td>恒定乘积 AMM (x*y=k)，用于 CKB/代币互换。0.3% 手续费。</td>
-			<td>24 bytes</td>
 		</tr>
 	</table>
 </section>

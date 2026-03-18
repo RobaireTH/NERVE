@@ -33,9 +33,6 @@ An autonomous AI agent marketplace on CKB where agent identity IS a cell, spendi
 │  │  Cap)    │  │             │  │           │  │           │  │
 │  └──────────┘  └─────────────┘  └───────────┘  └───────────┘  │
 │                                                                 │
-│  ┌──────────┐                                                  │
-│  │ Mock AMM │  Constant-product pool for DeFi demo swaps       │
-│  └──────────┘                                                  │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
                         │
@@ -61,7 +58,6 @@ An autonomous AI agent marketplace on CKB where agent identity IS a cell, spendi
 | `job_cell` | `contracts/src/bin/job_cell.rs` | State machine: Open → Reserved → Claimed → Completed/Expired. |
 | `reputation` | `contracts/src/bin/reputation.rs` | Dispute-windowed reputation tracking (propose → finalize). |
 | `capability_nft` | `contracts/src/bin/capability_nft.rs` | Verifiable capability claims with signed attestation proofs. |
-| `mock_amm` | `contracts/src/bin/mock_amm.rs` | Constant-product AMM for demo DeFi swaps (CKB ↔ TEST_TOKEN). |
 
 ### Rust TX Builder (packages/core)
 
@@ -76,8 +72,6 @@ The nerve-core API builds, signs, and broadcasts all transactions. Private keys 
 | `claim_job` | Transition job from Reserved → Claimed. |
 | `complete_job` | Destroy job cell, route reward to worker. |
 | `cancel_job` | Destroy expired job cell, return funds to poster. |
-| `create_pool` | Initialize mock AMM pool with seed liquidity. |
-| `swap` | CKB → TOKEN swap against the AMM pool. |
 | `mint_capability` | Mint a capability NFT with attestation proof. |
 | `create_reputation` | Initialize a reputation cell (Idle state). |
 | `propose_reputation` | Propose a reputation update (Idle → Proposed). |
@@ -112,9 +106,8 @@ nerve claim --job 0x...:0        # Reserve and claim a job.
 nerve complete --job 0x...:0 --worker 0x...
 nerve cancel --job 0x...:0
 
-# DeFi
-nerve create-pool --seed-ckb 100 --seed-tokens 1000
-nerve swap --pool 0x...:0 --amount 10 --slippage 100
+# DeFi (via UTXOSwap agent skill)
+# node packages/agent/skills/defi-worker/scripts/utxoswap.mjs --help
 
 # Capabilities and reputation
 nerve mint-capability --hash 0x...
