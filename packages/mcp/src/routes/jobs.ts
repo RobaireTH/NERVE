@@ -6,6 +6,7 @@ const router = Router();
 const CORE_URL = process.env.CORE_URL ?? 'http://localhost:8080';
 const JOB_TYPE_CODE_HASH = process.env.JOB_CELL_TYPE_CODE_HASH ?? '';
 const CAP_NFT_TYPE_CODE_HASH = process.env.CAP_NFT_TYPE_CODE_HASH ?? '';
+const REP_TYPE_CODE_HASH = process.env.REPUTATION_TYPE_CODE_HASH ?? '';
 const ZERO_CAPABILITY_HASH = '0x' + '0'.repeat(64);
 
 const JOB_STATUS = ['Open', 'Reserved', 'Claimed', 'Completed', 'Expired'] as const;
@@ -101,35 +102,43 @@ router.get('/match/:lock_args', async (req, res) => {
 	const { lock_args } = req.params;
 
 	try {
-		// Fetch agent's capability NFTs.
+		// Parallel-fetch capabilities, block height, jobs, and reputation cells.
+		const capPromise = CAP_NFT_TYPE_CODE_HASH
+			? getCellsByScript({ code_hash: CAP_NFT_TYPE_CODE_HASH, hash_type: 'data1', args: '0x' }, 'type', 200)
+			: Promise.resolve({ objects: [] as LiveCell[] });
+		const repPromise = REP_TYPE_CODE_HASH
+			? getCellsByScript({ code_hash: REP_TYPE_CODE_HASH, hash_type: 'data1', args: '0x' }, 'type', 200)
+			: Promise.resolve({ objects: [] as LiveCell[] });
+		const jobPromise = getCellsByScript(
+			{ code_hash: JOB_TYPE_CODE_HASH, hash_type: 'data1', args: '0x' }, 'type', 200,
+		);
+		const [capResult, currentBlock, jobResult, repResult] = await Promise.all([
+			capPromise, getTipBlockNumber(), jobPromise, repPromise,
+		]);
+
+		// Build agent capability set.
 		const agentCapabilities = new Set<string>();
-		if (CAP_NFT_TYPE_CODE_HASH) {
-			const capScript: Script = {
-				code_hash: CAP_NFT_TYPE_CODE_HASH,
-				hash_type: 'data1',
-				args: '0x',
-			};
-			const capResult = await getCellsByScript(capScript, 'type', 200);
-			for (const c of capResult.objects) {
-				const raw = Buffer.from((c.output_data ?? '0x').replace('0x', ''), 'hex');
-				if (raw.length < 54) continue;
-				const agentArgs = '0x' + raw.subarray(2, 22).toString('hex');
-				if (agentArgs.toLowerCase() === lock_args.toLowerCase()) {
-					agentCapabilities.add('0x' + raw.subarray(22, 54).toString('hex'));
-				}
+		for (const c of capResult.objects) {
+			const raw = Buffer.from((c.output_data ?? '0x').replace('0x', ''), 'hex');
+			if (raw.length < 54) continue;
+			const agentArgs = '0x' + raw.subarray(2, 22).toString('hex');
+			if (agentArgs.toLowerCase() === lock_args.toLowerCase()) {
+				agentCapabilities.add('0x' + raw.subarray(22, 54).toString('hex'));
 			}
 		}
 
-		// Fetch current block height for TTL filtering.
-		const currentBlock = await getTipBlockNumber();
+		// Build poster reputation lookup: lock_args → { completed, abandoned }.
+		const posterRep = new Map<string, { completed: number; abandoned: number }>();
+		for (const c of repResult.objects) {
+			const raw = Buffer.from((c.output_data ?? '0x').replace('0x', ''), 'hex');
+			if (raw.length < 46) continue;
+			const agentArgs = '0x' + raw.subarray(26, 46).toString('hex');
+			posterRep.set(agentArgs.toLowerCase(), {
+				completed: Number(raw.readBigUInt64LE(2)),
+				abandoned: Number(raw.readBigUInt64LE(10)),
+			});
+		}
 
-		// Fetch all open jobs.
-		const jobScript: Script = {
-			code_hash: JOB_TYPE_CODE_HASH,
-			hash_type: 'data1',
-			args: '0x',
-		};
-		const jobResult = await getCellsByScript(jobScript, 'type', 200);
 		const allJobs = jobResult.objects
 			.map(parseJobCell)
 			.filter((j): j is ParsedJob => j !== null);
@@ -142,14 +151,55 @@ router.get('/match/:lock_args', async (req, res) => {
 			return agentCapabilities.has(j.capability_hash);
 		});
 
-		// Sort by reward descending.
-		matched.sort((a, b) => b.reward_ckb - a.reward_ckb);
+		// ── Weighted scoring (spec §5.6) ────────────────────────────────────
+		// reward_value (0-40):  normalized reward relative to the best offer.
+		// ttl_urgency  (0-30):  prefer 50-200 blocks remaining, penalize too-soon or stale.
+		// poster_rep   (0-30):  poster's reputation ratio, weighted by volume.
+		const maxReward = matched.reduce((m, j) => Math.max(m, j.reward_ckb), 0) || 1;
+
+		const scored = matched.map((j) => {
+			const blocksLeft = Number(BigInt(j.ttl_block_height) - currentBlock);
+
+			// Reward: linear 0-40 relative to best offer.
+			const rewardScore = Math.round((j.reward_ckb / maxReward) * 40);
+
+			// TTL urgency: peak at 100-200 blocks, taper outside.
+			let urgencyScore: number;
+			if (blocksLeft >= 100 && blocksLeft <= 200) {
+				urgencyScore = 30; // sweet spot
+			} else if (blocksLeft >= 50 && blocksLeft < 100) {
+				urgencyScore = Math.round(((blocksLeft - 50) / 50) * 30);
+			} else if (blocksLeft > 200 && blocksLeft <= 500) {
+				urgencyScore = Math.round(((500 - blocksLeft) / 300) * 25) + 5;
+			} else {
+				urgencyScore = 5; // very distant jobs get minimum score
+			}
+
+			// Poster reputation.
+			let posterScore = 15; // default for unknown posters
+			const rep = posterRep.get(j.poster_lock_args.toLowerCase());
+			if (rep) {
+				const total = rep.completed + rep.abandoned;
+				if (total > 0) {
+					const ratio = rep.completed / total;
+					const volume = Math.min(total / 5, 1);
+					posterScore = Math.round(ratio * 30 * volume);
+				}
+			}
+
+			const score = rewardScore + urgencyScore + posterScore;
+
+			return { ...j, score, score_breakdown: { reward: rewardScore, urgency: urgencyScore, poster_reputation: posterScore } };
+		});
+
+		// Sort by composite score descending.
+		scored.sort((a, b) => b.score - a.score);
 
 		res.json({
 			lock_args,
 			agent_capabilities: [...agentCapabilities],
-			jobs: matched,
-			count: matched.length,
+			jobs: scored,
+			count: scored.length,
 		});
 	} catch (e) {
 		console.error('jobs match route error:', e);
