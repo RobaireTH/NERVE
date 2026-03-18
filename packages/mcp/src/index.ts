@@ -5,6 +5,7 @@ import jobsRouter from './routes/jobs.js';
 import agentsRouter from './routes/agents.js';
 import fiberRouter from './routes/fiber.js';
 import discoverRouter from './routes/discover.js';
+import txRouter from './routes/tx.js';
 
 const app = express();
 const PORT = Number(process.env.MCP_PORT ?? 8081);
@@ -25,6 +26,7 @@ app.use('/chain', chainRouter);
 app.use('/jobs', jobsRouter);
 app.use('/agents', agentsRouter);
 app.use('/fiber', fiberRouter);
+app.use('/tx', txRouter);
 
 // Global error handler — catches unhandled exceptions in route handlers.
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {

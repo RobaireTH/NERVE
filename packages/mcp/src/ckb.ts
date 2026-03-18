@@ -90,6 +90,10 @@ export async function getTransaction(txHash: string): Promise<unknown> {
 	return rpc<unknown>(RPC_URL, 'get_transaction', [txHash]);
 }
 
+export async function sendTransaction(tx: object): Promise<string> {
+	return rpc<string>(RPC_URL, 'send_transaction', [tx, 'passthrough']);
+}
+
 // Compute total capacity (shannons) from a list of cells with a given lock.
 export async function getBalanceByLock(lockArgs: string): Promise<bigint> {
 	const script: Script = {
