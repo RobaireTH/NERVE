@@ -213,36 +213,9 @@ pass "flow 1 finished (worker balance: $WORKER_BAL → $NEW_WORKER_BAL)"
 
 # ── FLOW 2: DeFi Swap ───────────────────────────────────────────────────────
 
-section "FLOW 2: DeFi Swap"
+section "FLOW 2: DeFi (UTXOSwap)"
 
-if [[ -n "${MOCK_AMM_TYPE_CODE_HASH:-}" ]]; then
-	# Create pool
-	POOL_RESP=$(curl -sf -X POST "$POSTER_URL/tx/build-and-broadcast" \
-		-H "Content-Type: application/json" \
-		-d '{"intent":"create_pool","seed_ckb":100,"seed_token_amount":1000}') || true
-	POOL_TX=$(echo "$POOL_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
-
-	if [[ -n "$POOL_TX" && ${#POOL_TX} -eq 66 ]]; then
-		pass "create_pool → $POOL_TX"
-		wait_committed_and_indexed "$POOL_TX" "0x0" "pool"
-
-		# Swap
-		SWAP_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
-			-H "Content-Type: application/json" \
-			-d "{\"intent\":\"swap\",\"pool_tx_hash\":\"$POOL_TX\",\"pool_index\":0,\"amount_ckb\":10,\"slippage_bps\":100}") || true
-		SWAP_TX=$(echo "$SWAP_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
-
-		if [[ -n "$SWAP_TX" && ${#SWAP_TX} -eq 66 ]]; then
-			pass "swap → $SWAP_TX"
-		else
-			fail "swap returned: $SWAP_RESP"
-		fi
-	else
-		fail "create_pool returned: $POOL_RESP"
-	fi
-else
-	skip "MOCK_AMM_TYPE_CODE_HASH not set"
-fi
+skip "UTXOSwap DeFi tested via agent skills, not integration test"
 
 # ── FLOW 3: Capability NFT ──────────────────────────────────────────────────
 

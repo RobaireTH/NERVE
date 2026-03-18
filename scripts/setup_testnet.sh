@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # setup_testnet.sh — One-shot testnet setup for NERVE demo.
 #
-# Deploys all contracts, spawns agent identities, creates a mock AMM pool,
+# Deploys all contracts, spawns agent identities,
 # and creates reputation cells for both poster and worker agents.
 #
 # Prerequisites:
@@ -91,15 +91,6 @@ SUB_AGENT_TX=$(post_tx "$POSTER_URL" \
 ok "Sub-agent identity: $SUB_AGENT_TX:0"
 wait_tx
 
-# ── Step 6: Create mock AMM pool ─────────────────────────────────────────────
-
-step "Step 6: Creating mock AMM pool (1000 CKB / 1000000 tokens)"
-POOL_TX=$(post_tx "$POSTER_URL" \
-	'{"intent":"create_pool","seed_ckb":1000,"seed_token_amount":1000000}') \
-	|| fail "create_pool failed"
-ok "AMM pool: $POOL_TX:0"
-wait_tx
-
 # ── Step 6: Mint capability NFT for worker ───────────────────────────────────
 
 step "Step 7: Minting capability NFT for worker (text_summarize)"
@@ -186,7 +177,6 @@ echo "  Worker identity: $WORKER_SPAWN_TX:0"
 echo "  Poster rep:      $POSTER_REP_TX:0"
 echo "  Worker rep:      $WORKER_REP_TX:0"
 echo "  Sub-agent:       $SUB_AGENT_TX:0 (10% rev share)"
-echo "  AMM pool:        $POOL_TX:0"
 echo "  Capability NFT:  $CAP_TX:0"
 echo "  Fiber Network:   $FIBER_STATUS"
 echo

@@ -35,12 +35,6 @@ step "Checking deployed contracts"
 [[ -n "${JOB_CELL_TYPE_CODE_HASH:-}" ]] || fail "JOB_CELL_TYPE_CODE_HASH not set"
 ok "Job cell type script: ${JOB_CELL_TYPE_CODE_HASH:0:18}..."
 
-if [[ -n "${MOCK_AMM_TYPE_CODE_HASH:-}" ]]; then
-	ok "Mock AMM type script: ${MOCK_AMM_TYPE_CODE_HASH:0:18}..."
-else
-	echo "   ⚠ MOCK_AMM_TYPE_CODE_HASH not set — DeFi swap demos will fail"
-fi
-
 # ── Telegram Config Check ────────────────────────────────────────────────────
 
 step "Checking Telegram config"
@@ -97,8 +91,8 @@ echo
 echo "  4. Claim a job (use a real tx_hash:index):"
 echo "     \"Claim 0x<tx_hash>:0\""
 echo
-echo "  5. DeFi swap (requires mock AMM pool):"
-echo "     \"Swap 10 CKB for TEST_TOKEN\""
+echo "  5. DeFi swap (via UTXOSwap):"
+echo "     \"Swap 10 CKB for tokens\""
 echo
 echo "  6. Check transaction status:"
 echo "     \"Status of 0x<tx_hash>\""

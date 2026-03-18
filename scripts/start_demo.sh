@@ -211,31 +211,12 @@ echo "   Explorer: https://testnet.explorer.nervos.org/transaction/$COMPLETE_TX"
 
 ok "Flow 1 complete: Agent Marketplace"
 
-# ── Flow 2: DeFi Swap ─────────────────────────────────────────────────────────
+# ── Flow 2: DeFi (UTXOSwap) ───────────────────────────────────────────────────
 
-POOL_TX_HASH="${DEMO_POOL_TX_HASH:-}"
-SWAP_TX=""
-if [[ -n "$POOL_TX_HASH" && -n "${MOCK_AMM_TYPE_CODE_HASH:-}" ]]; then
-	step "FLOW 2: DeFi Execution"
-	pending "Worker: swapping 10 CKB via mock AMM pool"
-	SWAP_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
-		-H "Content-Type: application/json" \
-		-d "{\"intent\":\"swap\",\"pool_tx_hash\":\"$POOL_TX_HASH\",\"pool_index\":0,\"amount_ckb\":10,\"slippage_bps\":100}" 2>&1) || true
-	SWAP_TX=$(echo "$SWAP_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
-	if [[ -n "$SWAP_TX" ]]; then
-		ok "Swap tx: $SWAP_TX"
-		echo "   Explorer: https://testnet.explorer.nervos.org/transaction/$SWAP_TX"
-	else
-		echo "   Swap skipped or failed: $SWAP_RESP"
-	fi
-	pending "Waiting 12s..."
-	sleep 12
-	ok "Flow 2 complete: DeFi Swap"
-else
-	echo
-	echo "── FLOW 2: DeFi Execution (skipped) ──"
-	echo "   Set DEMO_POOL_TX_HASH and deploy mock_amm to enable."
-fi
+echo
+echo "── FLOW 2: DeFi (UTXOSwap) ──"
+echo "   DeFi swaps use UTXOSwap via the defi-worker agent skill."
+echo "   Run: node packages/agent/skills/defi-worker/scripts/utxoswap.mjs --help"
 
 # ── Flow 3: Capability Proof ──────────────────────────────────────────────────
 
@@ -401,12 +382,8 @@ echo "    claim:    $CLAIM_TX"
 echo "    complete: $COMPLETE_TX"
 echo "    Worker ($WORKER_LOCK_ARGS) received $REWARD_CKB CKB."
 echo
-echo "  FLOW 2: DeFi Swap"
-if [[ -n "$SWAP_TX" ]]; then
-	echo "    swap:     $SWAP_TX"
-else
-	echo "    (skipped — set DEMO_POOL_TX_HASH)"
-fi
+echo "  FLOW 2: DeFi (UTXOSwap)"
+echo "    Use defi-worker agent skill for live swaps."
 echo
 echo "  FLOW 3: Capability Proof"
 if [[ -n "$CAP_TX" ]]; then
