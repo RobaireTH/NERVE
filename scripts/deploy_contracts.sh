@@ -36,10 +36,10 @@ update_env() {
 
 deploy_binary() {
 	local name="$1" env_code_hash="$2" env_dep_tx="$3"
-	local binary="$CONTRACTS_DIR/target/$TARGET/release/$name"
+	local binary="$ROOT_DIR/target/$TARGET/release/$name"
 
 	echo "==> Building $name (RISC-V)..."
-	(cd "$CONTRACTS_DIR" && cargo build --target "$TARGET" --release --bin "$name" 2>&1)
+	(cd "$ROOT_DIR" && cargo build -p nerve-contracts --target "$TARGET" --release --bin "$name" 2>&1)
 
 	if [[ ! -f "$binary" ]]; then
 		echo "ERROR: binary not found at $binary" >&2; exit 1
