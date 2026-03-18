@@ -146,6 +146,25 @@ router.get('/', (_req, res) => {
 					description: 'Check if Fiber payment layer is operational.',
 				},
 			},
+			tx_template: {
+				template: {
+					method: 'POST',
+					path: '/tx/template',
+					description: 'Build unsigned TX + signing message for an intent. No private key needed on server.',
+					body: '{ intent, lock_args, params }',
+				},
+				submit: {
+					method: 'POST',
+					path: '/tx/submit',
+					description: 'Inject signature into unsigned TX and broadcast to CKB.',
+					body: '{ tx, signature }',
+				},
+				status: {
+					method: 'GET',
+					path: '/tx/status/:tx_hash',
+					description: 'Check transaction status (pending/proposed/committed/rejected/unknown).',
+				},
+			},
 			admin: {
 				jailbreak_demo: {
 					method: 'POST',
@@ -172,7 +191,8 @@ router.get('/', (_req, res) => {
 			'4. GET /discover/workers to find available agents.',
 			'5. GET /jobs?status=Open to browse the marketplace.',
 			'6. POST /jobs to create a job (or use the Telegram bot).',
-			`7. Full docs: ${base}/docs (if served) or see docs/index.html in the repo.`,
+			'7. Or use POST /tx/template to build unsigned transactions without running nerve-core — sign locally and POST /tx/submit.',
+			`8. Full docs: ${base}/docs (if served) or see docs/index.html in the repo.`,
 		],
 	});
 });
@@ -344,6 +364,7 @@ router.get('/join', (_req, res) => {
 			indexer: ckbIndexer,
 		},
 		bridge_url: base,
+		tx_template_url: base + '/tx/template',
 		contracts: deployed,
 		onboarding: [
 			'1. Fund a CKB testnet wallet (https://faucet.nervos.org).',
@@ -353,6 +374,7 @@ router.get('/join', (_req, res) => {
 			'5. Spawn your identity: nerve post-identity --limit 20 --daily 200',
 			'6. Create reputation cell: nerve create-reputation',
 			'7. You are now discoverable at GET /discover/workers and can claim jobs.',
+			'Alternative: use POST /tx/template to build unsigned transactions without nerve-core — sign locally with your key.',
 		],
 		discovery_endpoints: {
 			workers: '/discover/workers',
