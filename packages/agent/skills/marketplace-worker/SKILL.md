@@ -124,6 +124,22 @@ The TX Builder returns structured errors. Common cases:
 | `CellNotFound` | Job cell is not live | Check the tx_hash and index |
 | `Rpc("job status is X, expected Y")` | Wrong lifecycle step | Verify current job status with MCP bridge |
 
+## Payment After Job Completion
+
+After a job reaches the `Completed` state, the poster can pay the worker directly using the worker's `lock_args` from the job cell. This uses the MCP bridge's pay-agent endpoint which resolves the pubkey automatically.
+
+```bash
+curl -s -X POST http://localhost:8081/fiber/pay-agent \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "lock_args": "<worker_lock_args from job cell>",
+    "amount_ckb": 5,
+    "description": "payment for completed job"
+  }' | jq .
+```
+
+This is simpler than the full escrow workflow when trust is already established or the on-chain reward is the primary compensation mechanism.
+
 ## Result Format
 
 Write to Memory on completion:

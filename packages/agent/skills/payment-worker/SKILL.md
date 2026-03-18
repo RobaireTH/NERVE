@@ -123,6 +123,7 @@ If fiber-pay CLI is unavailable, fall back to the MCP bridge:
 | Settle invoice | `fiber-pay invoice settle <hash> --preimage <hex> --json` | `POST /fiber/settle` |
 | Pay invoice | `fiber-pay payment send <invoice> --json` | `POST /fiber/pay` |
 | Keysend | `fiber-pay payment send --to <id> --amount <ckb> --json` | `POST /fiber/pay` |
+| Pay agent by lock_args | — | `POST /fiber/pay-agent` |
 | Node readiness | `fiber-pay node ready --json` | `GET /fiber/ready` |
 
 ## Typical Workflow
@@ -166,6 +167,30 @@ Trustless off-chain payment escrow for jobs using Fiber hold invoices:
    fiber-pay invoice settle <payment_hash> --preimage <preimage_hex> --json
    ```
    This instantly releases the escrowed CKB to the worker.
+
+## Pay Agent by Lock Args
+
+When you only know a worker's `lock_args` (not their Fiber pubkey), use the MCP bridge's pay-agent endpoint. It resolves the agent's pubkey from their on-chain identity cell and performs a keysend in one call.
+
+```bash
+curl -s -X POST http://localhost:8081/fiber/pay-agent \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "lock_args": "0x2b9793ab138a5c349c8978918cc62a85849e9fac",
+    "amount_ckb": 5,
+    "description": "payment for job completion"
+  }' | jq .
+```
+
+Response:
+```json
+{
+  "payment_hash": "0x...",
+  "status": "Success",
+  "fee_shannons": 1000,
+  "agent_pubkey": "0x..."
+}
+```
 
 ## Notes
 
