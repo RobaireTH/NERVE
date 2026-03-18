@@ -18,9 +18,46 @@ set -euo pipefail
 
 CORE_URL="${CORE_URL:-http://localhost:8080}"
 
+CKB_RPC="${CKB_RPC_URL:-https://testnet.ckb.dev/rpc}"
+
 step()    { echo; echo "── $* ──"; }
 ok()      { echo "   ✓ $*"; }
 fail()    { echo "   ✗ $*" >&2; exit 1; }
+
+# Wait for a TX to be committed, then wait for its output cell to be indexed.
+wait_committed_and_indexed() {
+	local tx_hash="$1" out_index="${2:-0x0}" label="${3:-cell}"
+	echo "   … Waiting for $label tx to be committed..."
+	for i in $(seq 1 30); do
+		local status
+		status=$(curl -sf -X POST "$CKB_RPC" \
+			-H "Content-Type: application/json" \
+			-d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"get_transaction\",\"params\":[\"$tx_hash\"]}" \
+			| grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
+		if [[ "$status" == "committed" ]]; then
+			ok "$label tx committed (poll $i)"
+			break
+		fi
+		echo "   … poll $i: $status — waiting 6s..."
+		sleep 6
+		[[ "$i" == "30" ]] && fail "$label tx not committed after 30 polls"
+	done
+	echo "   … Waiting for indexer to pick up $label cell..."
+	for i in $(seq 1 20); do
+		local cell_status
+		cell_status=$(curl -sf -X POST "$CKB_RPC" \
+			-H "Content-Type: application/json" \
+			-d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"get_live_cell\",\"params\":[{\"tx_hash\":\"$tx_hash\",\"index\":\"$out_index\"},false]}" \
+			| grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
+		if [[ "$cell_status" == "live" ]]; then
+			ok "$label cell indexed (poll $i)"
+			return 0
+		fi
+		echo "   … indexer poll $i: $cell_status — waiting 3s..."
+		sleep 3
+	done
+	fail "$label cell not indexed after 60s"
+}
 
 # ── Pre-flight ────────────────────────────────────────────────────────────────
 
@@ -49,8 +86,7 @@ fi
 ok "Agent identity spawned: $SPAWN_TX"
 echo "   Explorer: https://testnet.explorer.nervos.org/transaction/$SPAWN_TX"
 
-echo "   Waiting 15s for confirmation..."
-sleep 15
+wait_committed_and_indexed "$SPAWN_TX" "0x0" "identity"
 
 # ── Step 2: Attempt 10 CKB transfer (should fail) ────────────────────────────
 

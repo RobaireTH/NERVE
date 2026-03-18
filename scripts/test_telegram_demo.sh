@@ -61,11 +61,11 @@ echo "   Balance:   $BAL_CKB CKB"
 
 # ── Post a Test Job for Heartbeat ────────────────────────────────────────────
 
-step "Posting a test job (5 CKB, 200 blocks TTL)"
+step "Posting a test job (62 CKB, 200 blocks TTL)"
 CAPABILITY="0x0000000000000000000000000000000000000000000000000000000000000000"
 POST_RESP=$(curl -sf -X POST "$CORE_URL/tx/build-and-broadcast" \
 	-H "Content-Type: application/json" \
-	-d "{\"intent\":\"post_job\",\"reward_ckb\":5,\"ttl_blocks\":200,\"capability_hash\":\"$CAPABILITY\"}" 2>&1) || true
+	-d "{\"intent\":\"post_job\",\"reward_ckb\":62,\"ttl_blocks\":200,\"capability_hash\":\"$CAPABILITY\"}" 2>&1) || true
 TX_HASH=$(echo "$POST_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
 
 if [[ -n "$TX_HASH" ]]; then

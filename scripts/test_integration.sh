@@ -33,10 +33,48 @@ PASS=0
 FAIL=0
 SKIP=0
 
+CKB_RPC="${CKB_RPC_URL:-https://testnet.ckb.dev/rpc}"
+
 pass() { PASS=$((PASS + 1)); echo "   PASS: $*"; }
 fail() { FAIL=$((FAIL + 1)); echo "   FAIL: $*" >&2; }
 skip() { SKIP=$((SKIP + 1)); echo "   SKIP: $*"; }
 section() { echo; echo "═══ $* ═══"; }
+
+# Wait for a TX to be committed, then wait for its output cell to be indexed.
+wait_committed_and_indexed() {
+	local tx_hash="$1" out_index="${2:-0x0}" label="${3:-cell}"
+	echo "   … Waiting for $label tx to be committed..."
+	for i in $(seq 1 30); do
+		local status
+		status=$(curl -sf -X POST "$CKB_RPC" \
+			-H "Content-Type: application/json" \
+			-d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"get_transaction\",\"params\":[\"$tx_hash\"]}" \
+			| grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
+		if [[ "$status" == "committed" ]]; then
+			echo "   $label tx committed (poll $i)"
+			break
+		fi
+		echo "   … poll $i: $status — waiting 6s..."
+		sleep 6
+		[[ "$i" == "30" ]] && { fail "$label tx not committed after 30 polls"; return 1; }
+	done
+	echo "   … Waiting for indexer to pick up $label cell..."
+	for i in $(seq 1 20); do
+		local cell_status
+		cell_status=$(curl -sf -X POST "$CKB_RPC" \
+			-H "Content-Type: application/json" \
+			-d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"get_live_cell\",\"params\":[{\"tx_hash\":\"$tx_hash\",\"index\":\"$out_index\"},false]}" \
+			| grep -o '"status":"[^"]*"' | head -1 | cut -d'"' -f4)
+		if [[ "$cell_status" == "live" ]]; then
+			echo "   $label cell indexed (poll $i)"
+			return 0
+		fi
+		echo "   … indexer poll $i: $cell_status — waiting 3s..."
+		sleep 3
+	done
+	fail "$label cell not indexed after 60s"
+	return 1
+}
 
 # ── Validation ───────────────────────────────────────────────────────────────
 
@@ -112,7 +150,7 @@ fi
 
 section "FLOW 1: Agent Marketplace"
 
-REWARD_CKB=5
+REWARD_CKB=62
 TTL_BLOCKS=200
 CAPABILITY="0x0000000000000000000000000000000000000000000000000000000000000000"
 
@@ -124,39 +162,36 @@ JOB_TX_HASH=$(echo "$POST_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 ||
 
 if [[ -n "$JOB_TX_HASH" && ${#JOB_TX_HASH} -eq 66 ]]; then
 	pass "post_job → $JOB_TX_HASH"
+	wait_committed_and_indexed "$JOB_TX_HASH" "0x0" "job"
 else
 	fail "post_job returned: $POST_RESP"
 fi
 
-sleep 12
-
-# Step 2: Reserve job
-RESERVE_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
+# Step 2: Reserve job (poster holds the cell lock, so poster reserves on behalf of worker)
+RESERVE_RESP=$(curl -sf -X POST "$POSTER_URL/tx/build-and-broadcast" \
 	-H "Content-Type: application/json" \
 	-d "{\"intent\":\"reserve_job\",\"job_tx_hash\":\"$JOB_TX_HASH\",\"job_index\":0,\"worker_lock_args\":\"$WORKER_LOCK_ARGS\"}") || true
 RESERVE_TX=$(echo "$RESERVE_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
 
 if [[ -n "$RESERVE_TX" && ${#RESERVE_TX} -eq 66 ]]; then
 	pass "reserve_job → $RESERVE_TX"
+	wait_committed_and_indexed "$RESERVE_TX" "0x0" "reserve"
 else
 	fail "reserve_job returned: $RESERVE_RESP"
 fi
 
-sleep 12
-
-# Step 3: Claim job
-CLAIM_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
+# Step 3: Claim job (poster holds the cell lock)
+CLAIM_RESP=$(curl -sf -X POST "$POSTER_URL/tx/build-and-broadcast" \
 	-H "Content-Type: application/json" \
 	-d "{\"intent\":\"claim_job\",\"job_tx_hash\":\"$RESERVE_TX\",\"job_index\":0}") || true
 CLAIM_TX=$(echo "$CLAIM_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
 
 if [[ -n "$CLAIM_TX" && ${#CLAIM_TX} -eq 66 ]]; then
 	pass "claim_job → $CLAIM_TX"
+	wait_committed_and_indexed "$CLAIM_TX" "0x0" "claim"
 else
 	fail "claim_job returned: $CLAIM_RESP"
 fi
-
-sleep 12
 
 # Step 4: Complete job
 COMPLETE_RESP=$(curl -sf -X POST "$POSTER_URL/tx/build-and-broadcast" \
@@ -166,11 +201,10 @@ COMPLETE_TX=$(echo "$COMPLETE_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f
 
 if [[ -n "$COMPLETE_TX" && ${#COMPLETE_TX} -eq 66 ]]; then
 	pass "complete_job → $COMPLETE_TX"
+	wait_committed_and_indexed "$COMPLETE_TX" "0x0" "complete"
 else
 	fail "complete_job returned: $COMPLETE_RESP"
 fi
-
-sleep 8
 
 # Verify worker received reward
 NEW_WORKER_BAL=$(curl -sf "$WORKER_URL/agent/balance" | grep -o '"balance_ckb":[0-9.]*' | cut -d: -f2)
@@ -185,12 +219,12 @@ if [[ -n "${MOCK_AMM_TYPE_CODE_HASH:-}" ]]; then
 	# Create pool
 	POOL_RESP=$(curl -sf -X POST "$POSTER_URL/tx/build-and-broadcast" \
 		-H "Content-Type: application/json" \
-		-d '{"intent":"create_pool","seed_ckb":100,"seed_tokens":1000}') || true
+		-d '{"intent":"create_pool","seed_ckb":100,"seed_token_amount":1000}') || true
 	POOL_TX=$(echo "$POOL_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
 
 	if [[ -n "$POOL_TX" && ${#POOL_TX} -eq 66 ]]; then
 		pass "create_pool → $POOL_TX"
-		sleep 12
+		wait_committed_and_indexed "$POOL_TX" "0x0" "pool"
 
 		# Swap
 		SWAP_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
@@ -223,6 +257,7 @@ if [[ -n "${CAP_NFT_TYPE_CODE_HASH:-}" ]]; then
 
 	if [[ -n "$CAP_TX" && ${#CAP_TX} -eq 66 ]]; then
 		pass "mint_capability → $CAP_TX"
+		wait_committed_and_indexed "$CAP_TX" "0x0" "capability"
 	else
 		fail "mint_capability returned: $CAP_RESP"
 	fi
@@ -243,7 +278,7 @@ if [[ -n "${REPUTATION_TYPE_CODE_HASH:-}" ]]; then
 
 	if [[ -n "$REP_TX" && ${#REP_TX} -eq 66 ]]; then
 		pass "create_reputation → $REP_TX"
-		sleep 12
+		wait_committed_and_indexed "$REP_TX" "0x0" "reputation"
 
 		# Propose reputation update
 		PROP_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
