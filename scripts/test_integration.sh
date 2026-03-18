@@ -2,15 +2,18 @@
 # test_integration.sh — Cold E2E integration test for all NERVE flows.
 #
 # Validates:
-#   1. Agent Marketplace: post → reserve → claim → complete
-#   2. DeFi Swap: create pool → swap
+#   1. Identity: spawn agent identity
+#   2. Marketplace: post → reserve → claim → complete
 #   3. Capability NFT: mint with attestation proof
+#   4. Reputation: create → propose → finalize
+#   5. Badge: mint PoP badge for completed job
+#   6. Sub-agent: spawn delegated identity
 #
 # Prerequisites:
 #   - Contracts deployed (source .env.deployed)
 #   - DEMO_POSTER_KEY and DEMO_WORKER_KEY set
 #   - CKB testnet reachable
-#   - Each agent funded with ≥ 200 CKB
+#   - Each agent funded with ≥ 500 CKB
 #
 # Usage:
 #   source .env && source .env.deployed && ./scripts/test_integration.sh
@@ -75,9 +78,6 @@ wait_committed_and_indexed() {
 	fail "$label cell not indexed after 60s"
 	return 1
 }
-
-# ── Validation ───────────────────────────────────────────────────────────────
-
 [[ -n "${DEMO_POSTER_KEY:-}" ]] || { echo "error: DEMO_POSTER_KEY not set" >&2; exit 1; }
 [[ -n "${DEMO_WORKER_KEY:-}" ]] || { echo "error: DEMO_WORKER_KEY not set" >&2; exit 1; }
 [[ -n "${JOB_CELL_TYPE_CODE_HASH:-}" ]] || { echo "error: JOB_CELL_TYPE_CODE_HASH not set" >&2; exit 1; }
@@ -144,6 +144,38 @@ if [[ -n "$WORKER_LOCK_ARGS" ]]; then
 else
 	fail "could not retrieve worker lock_args"
 	exit 1
+fi
+
+# ── FLOW 0: Identity ─────────────────────────────────────────────────────────
+
+section "FLOW 0: Identity Spawn"
+
+if [[ -n "${AGENT_IDENTITY_TYPE_CODE_HASH:-}" ]]; then
+	SPAWN_RESP=$(curl -sf -X POST "$POSTER_URL/tx/build-and-broadcast" \
+		-H "Content-Type: application/json" \
+		-d '{"intent":"spawn_agent","spending_limit_ckb":20,"daily_limit_ckb":200}') || true
+	IDENTITY_TX=$(echo "$SPAWN_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
+
+	if [[ -n "$IDENTITY_TX" && ${#IDENTITY_TX} -eq 66 ]]; then
+		pass "spawn_agent → $IDENTITY_TX"
+		wait_committed_and_indexed "$IDENTITY_TX" "0x0" "identity"
+	else
+		fail "spawn_agent returned: $SPAWN_RESP"
+	fi
+
+	SPAWN_W_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
+		-H "Content-Type: application/json" \
+		-d '{"intent":"spawn_agent","spending_limit_ckb":20,"daily_limit_ckb":200}') || true
+	W_IDENTITY_TX=$(echo "$SPAWN_W_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
+
+	if [[ -n "$W_IDENTITY_TX" && ${#W_IDENTITY_TX} -eq 66 ]]; then
+		pass "worker spawn_agent → $W_IDENTITY_TX"
+		wait_committed_and_indexed "$W_IDENTITY_TX" "0x0" "worker identity"
+	else
+		fail "worker spawn_agent returned: $SPAWN_W_RESP"
+	fi
+else
+	skip "AGENT_IDENTITY_TYPE_CODE_HASH not set"
 fi
 
 # ── FLOW 1: Agent Marketplace ───────────────────────────────────────────────
@@ -253,14 +285,28 @@ if [[ -n "${REPUTATION_TYPE_CODE_HASH:-}" ]]; then
 		pass "create_reputation → $REP_TX"
 		wait_committed_and_indexed "$REP_TX" "0x0" "reputation"
 
-		# Propose reputation update
 		PROP_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
 			-H "Content-Type: application/json" \
-			-d "{\"intent\":\"propose_reputation\",\"rep_tx_hash\":\"$REP_TX\",\"rep_index\":0,\"propose_type\":1,\"dispute_window\":10}") || true
+			-d "{\"intent\":\"propose_reputation\",\"rep_tx_hash\":\"$REP_TX\",\"rep_index\":0,\"propose_type\":1,\"dispute_window_blocks\":10}") || true
 		PROP_TX=$(echo "$PROP_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
 
 		if [[ -n "$PROP_TX" && ${#PROP_TX} -eq 66 ]]; then
 			pass "propose_reputation → $PROP_TX"
+			wait_committed_and_indexed "$PROP_TX" "0x0" "propose"
+
+			echo "   … Waiting for dispute window (10 blocks ≈ 100s)..."
+			sleep 110
+
+			FIN_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
+				-H "Content-Type: application/json" \
+				-d "{\"intent\":\"finalize_reputation\",\"rep_tx_hash\":\"$PROP_TX\",\"rep_index\":0}") || true
+			FIN_TX=$(echo "$FIN_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
+
+			if [[ -n "$FIN_TX" && ${#FIN_TX} -eq 66 ]]; then
+				pass "finalize_reputation → $FIN_TX"
+			else
+				fail "finalize_reputation returned: $FIN_RESP"
+			fi
 		else
 			fail "propose_reputation returned: $PROP_RESP"
 		fi
@@ -269,6 +315,45 @@ if [[ -n "${REPUTATION_TYPE_CODE_HASH:-}" ]]; then
 	fi
 else
 	skip "REPUTATION_TYPE_CODE_HASH not set"
+fi
+
+# ── Badge mint ───────────────────────────────────────────────────────────────
+
+section "Badge Mint"
+
+if [[ -n "${DOB_BADGE_CODE_HASH:-}" && -n "${COMPLETE_TX:-}" ]]; then
+	BADGE_RESP=$(curl -sf -X POST "$POSTER_URL/tx/build-and-broadcast" \
+		-H "Content-Type: application/json" \
+		-d "{\"intent\":\"mint_badge\",\"job_tx_hash\":\"$JOB_TX_HASH\",\"job_index\":0,\"worker_lock_args\":\"$WORKER_LOCK_ARGS\",\"completed_at_tx\":\"$COMPLETE_TX\"}") || true
+	BADGE_TX=$(echo "$BADGE_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
+
+	if [[ -n "$BADGE_TX" && ${#BADGE_TX} -eq 66 ]]; then
+		pass "mint_badge → $BADGE_TX"
+	else
+		fail "mint_badge returned: $BADGE_RESP"
+	fi
+else
+	skip "DOB_BADGE_CODE_HASH not set or no completed job"
+fi
+
+# ── Sub-agent ────────────────────────────────────────────────────────────────
+
+section "Sub-Agent Delegation"
+
+if [[ -n "${AGENT_IDENTITY_TYPE_CODE_HASH:-}" && -n "${IDENTITY_TX:-}" ]]; then
+	SUBAGENT_RESP=$(curl -sf -X POST "$POSTER_URL/tx/build-and-broadcast" \
+		-H "Content-Type: application/json" \
+		-d '{"intent":"spawn_sub_agent","spending_limit_ckb":5,"daily_limit_ckb":50,"revenue_share_bps":1000,"initial_funding_ckb":100}') || true
+	SUBAGENT_TX=$(echo "$SUBAGENT_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
+	SUBAGENT_LOCK=$(echo "$SUBAGENT_RESP" | grep -o '"sub_agent_lock_args":"[^"]*"' | cut -d'"' -f4 || true)
+
+	if [[ -n "$SUBAGENT_TX" && ${#SUBAGENT_TX} -eq 66 ]]; then
+		pass "spawn_sub_agent → $SUBAGENT_TX (lock: $SUBAGENT_LOCK)"
+	else
+		fail "spawn_sub_agent returned: $SUBAGENT_RESP"
+	fi
+else
+	skip "No identity cell for sub-agent test"
 fi
 
 echo
