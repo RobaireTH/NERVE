@@ -94,7 +94,7 @@ router.get('/', (_req, res) => {
 				sub_agents: {
 					method: 'GET',
 					path: '/agents/:lock_args/sub-agents',
-					description: 'List sub-agents delegated by this agent (V1 identity cells).',
+					description: 'List sub-agents delegated by this agent.',
 				},
 				trust_score: {
 					method: 'GET',
@@ -104,7 +104,7 @@ router.get('/', (_req, res) => {
 				spending_status: {
 					method: 'GET',
 					path: '/agents/:lock_args/spending',
-					description: 'Daily spending status: budget remaining, utilization, reset epoch (v2 identity cells with on-chain accumulator).',
+					description: 'Daily spending status: budget remaining, utilization, reset epoch.',
 				},
 			},
 			chain: {
@@ -226,21 +226,11 @@ router.get('/discover/workers', async (_req, res) => {
 				const dataHex = cell.output_data ?? '0x';
 				const raw = Buffer.from(dataHex.replace('0x', ''), 'hex');
 
-				// Parse identity data.
-				let spendingLimitCkb = 0;
-				let dailyLimitCkb = 0;
-				let identityVersion = 0;
-				let parentLockArgs: string | undefined;
-				let revenueShareBps: number | undefined;
-				if (raw.length >= 50) {
-					identityVersion = raw[0];
-					spendingLimitCkb = Number(raw.readBigUInt64LE(34)) / 1e8;
-					dailyLimitCkb = Number(raw.readBigUInt64LE(42)) / 1e8;
-				}
-				if (identityVersion >= 1 && raw.length >= 72) {
-					parentLockArgs = '0x' + raw.subarray(50, 70).toString('hex');
-					revenueShareBps = raw.readUInt16LE(70);
-				}
+				if (raw.length < 88 || raw[0] !== 0) return null;
+				const spendingLimitCkb = Number(raw.readBigUInt64LE(34)) / 1e8;
+				const dailyLimitCkb = Number(raw.readBigUInt64LE(42)) / 1e8;
+				const parentLockArgs = '0x' + raw.subarray(50, 70).toString('hex');
+				const revenueShareBps = raw.readUInt16LE(70);
 
 				// Fetch reputation (best-effort).
 				let reputation = { jobs_completed: 0, jobs_abandoned: 0 };
@@ -254,7 +244,7 @@ router.get('/discover/workers', async (_req, res) => {
 						const repCells = await getCellsByScript(repScript, 'type', 200);
 						const match = repCells.objects.find((c) => {
 							const d = Buffer.from((c.output_data ?? '0x').replace('0x', ''), 'hex');
-							if (d.length < 46) return false;
+							if (d.length < 110) return false;
 							return '0x' + d.subarray(26, 46).toString('hex') === lockArgs.toLowerCase();
 						});
 						if (match) {
@@ -312,7 +302,6 @@ router.get('/discover/workers', async (_req, res) => {
 					lock_args: lockArgs,
 					spending_limit_ckb: spendingLimitCkb,
 					daily_limit_ckb: dailyLimitCkb,
-					identity_version: identityVersion,
 					parent_lock_args: parentLockArgs,
 					revenue_share_bps: revenueShareBps,
 					reputation: {

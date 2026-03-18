@@ -9,52 +9,43 @@ const REP_TYPE_CODE_HASH = process.env.REPUTATION_TYPE_CODE_HASH ?? '';
 const DOB_BADGE_CODE_HASH = process.env.DOB_BADGE_CODE_HASH ?? '';
 const CAP_NFT_TYPE_CODE_HASH = process.env.CAP_NFT_TYPE_CODE_HASH ?? '';
 
-// Identity cell data: version(1) + pubkey(33) + spending_limit(8) + daily_limit(8)
-// + [v1+] parent_lock_args(20) + revenue_share_bps(2)
-// + [v2+] daily_spent(8) + last_reset_epoch(8)
+// Identity cell data layout (88 bytes):
+//   version(1) + pubkey(33) + spending_limit(8) + daily_limit(8)
+//   + parent_lock_args(20) + revenue_share_bps(2)
+//   + daily_spent(8) + last_reset_epoch(8)
 
 export interface AgentInfo {
 	lock_args: string;
 	pubkey: string;
 	spending_limit_ckb: number;
 	daily_limit_ckb: number;
-	version: number;
-	parent_lock_args?: string;
-	revenue_share_bps?: number;
-	daily_spent_ckb?: number;
-	last_reset_epoch?: number;
+	parent_lock_args: string;
+	revenue_share_bps: number;
+	daily_spent_ckb: number;
+	last_reset_epoch: number;
 }
 
 export function parseAgentCell(outputData: string, lockArgs: string): AgentInfo | null {
-	if (!outputData || outputData === '0x' || outputData.length < 2 + 100) return null;
+	if (!outputData || outputData === '0x') return null;
 	const raw = Buffer.from(outputData.replace('0x', ''), 'hex');
-	if (raw.length < 50) return null;
-	const version = raw[0];
-	if (version > 2) return null;
-	const pubkey = '0x' + raw.subarray(1, 34).toString('hex');
-	const spendingLimit = raw.readBigUInt64LE(34);
-	const dailyLimit = raw.readBigUInt64LE(42);
-	const info: AgentInfo = {
+	if (raw.length < 88) return null;
+	if (raw[0] !== 0) return null;
+	return {
 		lock_args: lockArgs,
-		pubkey,
-		spending_limit_ckb: Number(spendingLimit) / 1e8,
-		daily_limit_ckb: Number(dailyLimit) / 1e8,
-		version,
+		pubkey: '0x' + raw.subarray(1, 34).toString('hex'),
+		spending_limit_ckb: Number(raw.readBigUInt64LE(34)) / 1e8,
+		daily_limit_ckb: Number(raw.readBigUInt64LE(42)) / 1e8,
+		parent_lock_args: '0x' + raw.subarray(50, 70).toString('hex'),
+		revenue_share_bps: raw.readUInt16LE(70),
+		daily_spent_ckb: Number(raw.readBigUInt64LE(72)) / 1e8,
+		last_reset_epoch: Number(raw.readBigUInt64LE(80)),
 	};
-	if (version >= 1 && raw.length >= 72) {
-		info.parent_lock_args = '0x' + raw.subarray(50, 70).toString('hex');
-		info.revenue_share_bps = raw.readUInt16LE(70);
-	}
-	if (version >= 2 && raw.length >= 88) {
-		info.daily_spent_ckb = Number(raw.readBigUInt64LE(72)) / 1e8;
-		info.last_reset_epoch = Number(raw.readBigUInt64LE(80));
-	}
-	return info;
 }
 
-// Reputation cell data: version(1) + pending_type(1) + jobs_completed(8) +
-// jobs_abandoned(8) + pending_expires_at(8) + agent_lock_args(20)
-// + [v1+] proof_root(32) + pending_settlement_hash(32)
+// Reputation cell data layout (110 bytes):
+//   version(1) + pending_type(1) + jobs_completed(8) + jobs_abandoned(8)
+//   + pending_expires_at(8) + agent_lock_args(20) + proof_root(32)
+//   + pending_settlement_hash(32)
 
 interface ReputationInfo {
 	agent_lock_args: string;
@@ -62,36 +53,24 @@ interface ReputationInfo {
 	jobs_abandoned: number;
 	pending_type: number;
 	pending_expires_at: string;
-	version: number;
-	proof_root?: string;
-	pending_settlement_hash?: string;
+	proof_root: string;
+	pending_settlement_hash: string;
 }
 
 function parseReputationCell(outputData: string): ReputationInfo | null {
-	if (!outputData || outputData === '0x' || outputData.length < 2 + 92) return null;
+	if (!outputData || outputData === '0x') return null;
 	const raw = Buffer.from(outputData.replace('0x', ''), 'hex');
-	if (raw.length < 46) return null;
-	const version = raw[0];
-	if (version > 1) return null;
-	const pendingType = raw[1];
-	const completed = raw.readBigUInt64LE(2);
-	const abandoned = raw.readBigUInt64LE(10);
-	const expiresAt = raw.readBigUInt64LE(18);
-	const agentLockArgs = '0x' + raw.subarray(26, 46).toString('hex');
-	const info: ReputationInfo = {
-		agent_lock_args: agentLockArgs,
-		jobs_completed: Number(completed),
-		jobs_abandoned: Number(abandoned),
-		pending_type: pendingType,
-		pending_expires_at: expiresAt.toString(),
-		version,
+	if (raw.length < 110) return null;
+	if (raw[0] !== 0) return null;
+	return {
+		agent_lock_args: '0x' + raw.subarray(26, 46).toString('hex'),
+		jobs_completed: Number(raw.readBigUInt64LE(2)),
+		jobs_abandoned: Number(raw.readBigUInt64LE(10)),
+		pending_type: raw[1],
+		pending_expires_at: raw.readBigUInt64LE(18).toString(),
+		proof_root: '0x' + raw.subarray(46, 78).toString('hex'),
+		pending_settlement_hash: '0x' + raw.subarray(78, 110).toString('hex'),
 	};
-	// V1: parse proof_root and pending_settlement_hash.
-	if (version >= 1 && raw.length >= 110) {
-		info.proof_root = '0x' + raw.subarray(46, 78).toString('hex');
-		info.pending_settlement_hash = '0x' + raw.subarray(78, 110).toString('hex');
-	}
-	return info;
 }
 
 // Compute blake2b with CKB personalization ("ckb-default-hash").
@@ -232,7 +211,7 @@ router.get('/:lock_args/reputation/status', async (req, res) => {
 	}
 });
 
-// GET /agents/:lock_args/spending — daily spending status for v2 identity cells.
+// GET /agents/:lock_args/spending — daily spending status from on-chain accumulator.
 router.get('/:lock_args/spending', async (req, res) => {
 	if (!AGENT_TYPE_CODE_HASH) {
 		res.status(503).json({ error: 'AGENT_IDENTITY_TYPE_CODE_HASH not configured' });
@@ -256,31 +235,18 @@ router.get('/:lock_args/spending', async (req, res) => {
 			res.status(422).json({ error: 'cell is not a valid agent identity cell' });
 			return;
 		}
-		if (agent.version < 2) {
-			res.json({
-				lock_args,
-				version: agent.version,
-				daily_limit_ckb: agent.daily_limit_ckb,
-				tracking: 'off-chain',
-				message: 'v0/v1 identities track daily limits off-chain only',
-			});
-			return;
-		}
-		const dailySpent = agent.daily_spent_ckb ?? 0;
-		const dailyRemaining = Math.max(agent.daily_limit_ckb - dailySpent, 0);
+		const dailyRemaining = Math.max(agent.daily_limit_ckb - agent.daily_spent_ckb, 0);
 		const utilizationPct = agent.daily_limit_ckb > 0
-			? Math.round((dailySpent / agent.daily_limit_ckb) * 100)
+			? Math.round((agent.daily_spent_ckb / agent.daily_limit_ckb) * 100)
 			: 0;
 
 		res.json({
 			lock_args,
-			version: agent.version,
 			daily_limit_ckb: agent.daily_limit_ckb,
-			daily_spent_ckb: dailySpent,
+			daily_spent_ckb: agent.daily_spent_ckb,
 			daily_remaining_ckb: dailyRemaining,
 			utilization_pct: utilizationPct,
-			last_reset_epoch: agent.last_reset_epoch ?? 0,
-			tracking: 'on-chain',
+			last_reset_epoch: agent.last_reset_epoch,
 			out_point: match.out_point,
 		});
 	} catch (e) {
@@ -407,8 +373,8 @@ router.get('/:lock_args/reputation/verify', async (req, res) => {
 			return;
 		}
 		const rep = parseReputationCell(match.output_data);
-		if (!rep || rep.version < 1 || !rep.proof_root) {
-			res.status(422).json({ error: 'reputation cell is not V1 (no proof_root)' });
+		if (!rep) {
+			res.status(422).json({ error: 'cell is not a valid reputation cell' });
 			return;
 		}
 
@@ -460,10 +426,7 @@ router.get('/:lock_args/sub-agents', async (req, res) => {
 			.map((c) => {
 				const agent = parseAgentCell(c.output_data, c.output.lock.args);
 				if (!agent) return null;
-				// Only include v1 identities whose parent_lock_args matches.
 				if (
-					agent.version < 1 ||
-					!agent.parent_lock_args ||
 					agent.parent_lock_args.toLowerCase() === '0x' + '00'.repeat(20) ||
 					agent.parent_lock_args.toLowerCase() !== lock_args.toLowerCase()
 				) {
@@ -550,8 +513,7 @@ router.get('/:lock_args/trust', async (req, res) => {
 				if (rep) {
 					jobsCompleted = rep.jobs_completed;
 					jobsAbandoned = rep.jobs_abandoned;
-					hasProofChain = rep.version >= 1 && !!rep.proof_root &&
-						rep.proof_root !== '0x' + '00'.repeat(32);
+					hasProofChain = rep.proof_root !== '0x' + '00'.repeat(32);
 				}
 			}
 		}
@@ -639,7 +601,6 @@ router.get('/:lock_args/trust', async (req, res) => {
 					max: 15,
 				},
 			},
-			identity_version: identity.version,
 		});
 	} catch (e) {
 		console.error('agents route error:', e);
