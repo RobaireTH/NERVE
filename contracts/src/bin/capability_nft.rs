@@ -9,7 +9,7 @@
 //     - agent_lock_args must be non-zero (ties NFT to an agent identity).
 //     - capability_hash must be non-zero.
 //     - proof_data (bytes 54+) must be non-empty.
-//     - For proof_type=1: proof_root_snapshot must match a live v1 reputation
+//     - For proof_type=1: proof_root_snapshot must match a live reputation
 //       cell for this agent in cell_deps (on-chain cross-referencing).
 //   Spending:
 //     - The NFT cell must reappear in outputs (capability cannot be destroyed unilaterally).
@@ -86,7 +86,7 @@ fn validate_creation() -> Result<(), i8> {
 
 	// proof_type=1 (reputation-chain-backed): proof_data must be exactly 64 bytes
 	// (proof_root_snapshot[32] + settlement_hash[32]), both non-zero.
-	// The proof_root_snapshot must match a live v1 reputation cell for this agent in cell_deps.
+	// The proof_root_snapshot must match a live reputation cell for this agent in cell_deps.
 	if proof_type == 1 {
 		let proof_data = &data[DATA_MIN..];
 		if proof_data.len() != 64 { return Err(ERR_EMPTY_PROOF); }
@@ -104,10 +104,10 @@ fn validate_creation() -> Result<(), i8> {
 	Ok(())
 }
 
-/// Checks cell_deps for a v1 reputation cell whose agent_lock_args matches and
+/// Checks cell_deps for a reputation cell whose agent_lock_args matches and
 /// whose proof_root at [46..78] matches `expected_proof_root`.
 ///
-/// Reputation v1 data layout: [0] version=1, ..., [26..46] agent_lock_args, [46..78] proof_root.
+/// Reputation data layout: [0] version=0, ..., [26..46] agent_lock_args, [46..78] proof_root.
 /// The cell must have a type script to prevent spoofing.
 fn verify_proof_root_in_cell_deps(
 	agent_lock_args: &[u8],
@@ -121,16 +121,12 @@ fn verify_proof_root_in_cell_deps(
 			Err(e) => return Err(sys_err(e)),
 		};
 
-		// V1 reputation cell: version=1, at least 110 bytes.
-		if data.len() >= 110 && data[0] == 1 {
-			// Agent lock_args at [26..46] must match.
+		if data.len() >= 110 && data[0] == 0 {
 			if data[26..46] == *agent_lock_args {
-				// Must have a type script (prevents spoofing with plain data cells).
 				let has_type = load_cell_type_hash(i, Source::CellDep)
 					.map_err(sys_err)?
 					.is_some();
 				if has_type {
-					// proof_root at [46..78].
 					if data[46..78] == *expected_proof_root {
 						return Ok(true);
 					}

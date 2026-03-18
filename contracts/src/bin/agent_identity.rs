@@ -6,22 +6,8 @@
 // Type script args layout:
 //   [0..32]  type_id: [u8; 32]  (guarantees singleton via CKB Type ID pattern)
 //
-// Cell data layout v0 (50 bytes, little-endian):
+// Cell data layout (88 bytes, little-endian):
 //   [0]      version: u8       = 0
-//   [1..34]  pubkey: [u8; 33]  compressed secp256k1 pubkey
-//   [34..42] spending_limit_per_tx: u64  (shannons)
-//   [42..50] daily_limit: u64           (shannons; enforced off-chain)
-//
-// Cell data layout v1 (72 bytes, little-endian):
-//   [0]      version: u8       = 1
-//   [1..34]  pubkey: [u8; 33]  compressed secp256k1 pubkey
-//   [34..42] spending_limit_per_tx: u64  (shannons)
-//   [42..50] daily_limit: u64           (shannons; enforced off-chain)
-//   [50..70] parent_lock_args: [u8; 20] (all zeros = root agent)
-//   [70..72] revenue_share_bps: u16 LE  (basis points: 1000 = 10%)
-//
-// Cell data layout v2 (88 bytes, little-endian):
-//   [0]      version: u8       = 2
 //   [1..34]  pubkey: [u8; 33]  compressed secp256k1 pubkey
 //   [34..42] spending_limit_per_tx: u64  (shannons)
 //   [42..50] daily_limit: u64           (shannons; enforced on-chain via accumulator)
@@ -32,20 +18,16 @@
 //
 // CREATION MODE (no GroupInput):
 //   - Type ID must be valid (singleton guarantee).
-//   - V0: data >= 50 bytes, spending_limit > 0, daily_limit >= spending_limit.
-//   - V1: data >= 72 bytes, same limit checks, plus:
-//     - revenue_share_bps must be <= 10000.
-//     - If parent_lock_args is non-zero (sub-agent):
-//       - Parent must have signed (an input has matching lock.args).
-//       - Child spending_limit must not exceed parent's (parent identity in cell_deps).
-//   - V2: data >= 88 bytes, same checks as v1, plus:
-//     - daily_spent must be 0 (fresh accumulator).
-//     - last_reset_epoch must be 0.
+//   - Data must be exactly 88 bytes, version = 0, spending_limit > 0, daily_limit >= spending_limit.
+//   - revenue_share_bps must be <= 10000.
+//   - daily_spent and last_reset_epoch must be 0 (fresh accumulator).
+//   - If parent_lock_args is non-zero (sub-agent):
+//     - Parent must have signed (an input has matching lock.args).
+//     - Child spending_limit must not exceed parent's (parent identity in cell_deps).
 //
 // UPDATE MODE (GroupInput and GroupOutput both present):
 //   - Type ID singleton enforced.
-//   - V0/V1: identity data must be identical (fully immutable).
-//   - V2: config portion [0..72] must be identical (immutable); accumulator
+//   - Config portion [0..72] must be identical (immutable); accumulator
 //     [72..88] is mutable with epoch-based daily limit enforcement:
 //     - Reads current epoch from header_deps[0].
 //     - Day window = epoch_number / EPOCHS_PER_DAY (6 epochs ≈ 24h on mainnet).
@@ -140,42 +122,10 @@ fn run() -> Result<(), i8> {
 fn validate_creation() -> Result<(), i8> {
 	let data = load_cell_data(0, Source::GroupOutput).map_err(|_| ERR_INVALID_DATA)?;
 
-	match data.first().copied() {
-		Some(0) => validate_creation_v0(&data),
-		Some(1) => validate_creation_v1(&data),
-		Some(2) => validate_creation_v2(&data),
-		_ => Err(ERR_INVALID_DATA),
-	}
-}
-
-/// V0 creation: 50 bytes, spending and daily limits validated.
-fn validate_creation_v0(data: &[u8]) -> Result<(), i8> {
-	if data.len() < 50 {
+	if data.len() < 88 {
 		return Err(ERR_INVALID_DATA);
 	}
-
-	let spending_limit = read_u64_le(&data[34..42]).ok_or(ERR_INVALID_DATA)?;
-	if spending_limit == 0 {
-		return Err(ERR_INVALID_SPENDING_LIMIT);
-	}
-
-	let daily_limit = read_u64_le(&data[42..50]).ok_or(ERR_INVALID_DATA)?;
-	if daily_limit < spending_limit {
-		return Err(ERR_INVALID_DAILY_LIMIT);
-	}
-
-	Ok(())
-}
-
-/// V1 creation: 72 bytes, adds parent delegation and revenue sharing.
-///
-/// Enforces:
-///   - revenue_share_bps <= 10000.
-///   - If parent_lock_args is non-zero (sub-agent):
-///     - Parent must have signed the TX (an input has matching lock.args).
-///     - Child spending_limit <= parent's spending_limit (parent identity in cell_deps).
-fn validate_creation_v1(data: &[u8]) -> Result<(), i8> {
-	if data.len() < 72 {
+	if data[0] != 0 {
 		return Err(ERR_INVALID_DATA);
 	}
 
@@ -194,36 +144,6 @@ fn validate_creation_v1(data: &[u8]) -> Result<(), i8> {
 		return Err(ERR_INVALID_REVENUE_SHARE);
 	}
 
-	let parent_lock_args = &data[50..70];
-	let has_parent = !parent_lock_args.iter().all(|&b| b == 0);
-
-	if has_parent {
-		// Parent must have signed: verify an input cell has lock.args matching parent_lock_args.
-		if !verify_parent_in_inputs(parent_lock_args)? {
-			return Err(ERR_PARENT_NOT_SIGNED);
-		}
-
-		// Child spending_limit must not exceed parent's (parent identity cell in cell_deps).
-		verify_spending_within_parent(parent_lock_args, spending_limit)?;
-	}
-
-	Ok(())
-}
-
-/// V2 creation: 88 bytes, extends v1 with daily spending accumulator.
-///
-/// Same checks as v1, plus:
-///   - daily_spent must be 0 (fresh accumulator).
-///   - last_reset_epoch must be 0.
-fn validate_creation_v2(data: &[u8]) -> Result<(), i8> {
-	if data.len() < 88 {
-		return Err(ERR_INVALID_DATA);
-	}
-
-	// Reuse v1 checks for the shared config portion.
-	validate_creation_v1(data)?;
-
-	// Accumulator must start at zero.
 	let daily_spent = read_u64_le(&data[72..80]).ok_or(ERR_INVALID_DATA)?;
 	if daily_spent != 0 {
 		return Err(ERR_INVALID_ACCUMULATOR);
@@ -234,45 +154,38 @@ fn validate_creation_v2(data: &[u8]) -> Result<(), i8> {
 		return Err(ERR_INVALID_ACCUMULATOR);
 	}
 
+	let parent_lock_args = &data[50..70];
+	let has_parent = !parent_lock_args.iter().all(|&b| b == 0);
+
+	if has_parent {
+		if !verify_parent_in_inputs(parent_lock_args)? {
+			return Err(ERR_PARENT_NOT_SIGNED);
+		}
+		verify_spending_within_parent(parent_lock_args, spending_limit)?;
+	}
+
 	Ok(())
 }
 
 fn validate_spending() -> Result<(), i8> {
 	let identity_data = load_cell_data(0, Source::GroupInput).map_err(|_| ERR_INVALID_DATA)?;
-	if identity_data.len() < 50 {
+	if identity_data.len() < 88 {
 		return Err(ERR_INVALID_DATA);
 	}
 
 	let output_data = load_cell_data(0, Source::GroupOutput).map_err(|_| ERR_INVALID_DATA)?;
+	if output_data.len() < 88 {
+		return Err(ERR_INVALID_DATA);
+	}
 
-	let version = identity_data[0];
-
-	// V0/V1: identity data must be fully identical (immutable).
-	// V2: only the config portion [0..72] must match; accumulator [72..88] is mutable.
-	match version {
-		0 | 1 => {
-			if identity_data != output_data {
-				return Err(ERR_IDENTITY_DATA_CHANGED);
-			}
-		}
-		2 => {
-			if identity_data.len() < 88 || output_data.len() < 88 {
-				return Err(ERR_INVALID_DATA);
-			}
-			// Immutable config portion.
-			if identity_data[..72] != output_data[..72] {
-				return Err(ERR_IDENTITY_DATA_CHANGED);
-			}
-		}
-		_ => return Err(ERR_INVALID_DATA),
+	if identity_data[..72] != output_data[..72] {
+		return Err(ERR_IDENTITY_DATA_CHANGED);
 	}
 
 	let spending_limit = read_u64_le(&identity_data[34..42]).ok_or(ERR_INVALID_DATA)?;
 
-	// Get the agent's own lock hash to exclude self-transfers.
 	let agent_lock_hash = load_cell_lock_hash(0, Source::GroupInput).map_err(sys_err)?;
 
-	// Sum capacity flowing to addresses other than the agent.
 	let mut transferred_to_others: u64 = 0;
 	let mut idx = 0;
 	loop {
@@ -289,21 +202,15 @@ fn validate_spending() -> Result<(), i8> {
 		}
 	}
 
-	// Per-transaction spending limit (all versions).
 	if transferred_to_others > spending_limit {
 		return Err(ERR_SPENDING_LIMIT_EXCEEDED);
 	}
 
-	// V2: on-chain daily spending accumulator enforcement.
-	if version == 2 {
-		validate_daily_accumulator(&identity_data, &output_data, transferred_to_others)?;
-	}
+	validate_daily_accumulator(&identity_data, &output_data, transferred_to_others)?;
 
 	Ok(())
 }
 
-/// Validates the v2 daily spending accumulator.
-///
 /// Uses epoch-based day windows: day_number = epoch_number / EPOCHS_PER_DAY.
 /// When the day window changes, the accumulator resets. The output cell must
 /// contain the correct new daily_spent and the current epoch number.
@@ -397,8 +304,7 @@ fn verify_spending_within_parent(
 			Err(e) => return Err(sys_err(e)),
 		};
 
-		// Identity cell: at least 50 bytes, version 0, 1, or 2.
-		if data.len() >= 50 && matches!(data[0], 0 | 1 | 2) {
+		if data.len() >= 88 && data[0] == 0 {
 			// Must have a type script to prevent spoofing with plain data cells.
 			let has_type = load_cell_type_hash(i, Source::CellDep)
 				.map_err(sys_err)?
