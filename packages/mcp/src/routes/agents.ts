@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import blake2b from 'blake2b';
-import { getCellsByScript, Script } from '../ckb.js';
+import { getCellsByScript, getTipBlockNumber, Script } from '../ckb.js';
 
 const router = Router();
 
@@ -167,6 +167,66 @@ router.get('/:lock_args/reputation', async (req, res) => {
 		}
 		const rep = parseReputationCell(match.output_data);
 		res.json({ reputation: rep, out_point: match.out_point });
+	} catch (e) {
+		console.error('agents route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
+	}
+});
+
+// GET /agents/:lock_args/reputation/status — dispute window status for pending reputation proposals.
+router.get('/:lock_args/reputation/status', async (req, res) => {
+	if (!REP_TYPE_CODE_HASH) {
+		res.status(503).json({ error: 'REPUTATION_TYPE_CODE_HASH not configured' });
+		return;
+	}
+
+	const { lock_args } = req.params;
+
+	const script: Script = {
+		code_hash: REP_TYPE_CODE_HASH,
+		hash_type: 'data1',
+		args: '0x',
+	};
+
+	try {
+		const [result, tipBlock] = await Promise.all([
+			getCellsByScript(script, 'type', 200),
+			getTipBlockNumber(),
+		]);
+
+		const match = result.objects.find((c) => {
+			const rep = parseReputationCell(c.output_data);
+			return rep && rep.agent_lock_args.toLowerCase() === lock_args.toLowerCase();
+		});
+		if (!match) {
+			res.status(404).json({ error: 'no reputation cell found for this agent' });
+			return;
+		}
+
+		const rep = parseReputationCell(match.output_data);
+		if (!rep) {
+			res.status(422).json({ error: 'cell is not a valid reputation cell' });
+			return;
+		}
+
+		const PENDING_LABELS = ['none', 'job_completed', 'job_abandoned'] as const;
+		const expiresAt = BigInt(rep.pending_expires_at);
+		const blocksRemaining = expiresAt > tipBlock ? Number(expiresAt - tipBlock) : 0;
+		const canFinalize = rep.pending_type !== 0 && expiresAt <= tipBlock;
+
+		res.json({
+			pending: {
+				type: rep.pending_type,
+				label: PENDING_LABELS[rep.pending_type] ?? 'unknown',
+				expires_at: rep.pending_expires_at,
+				blocks_remaining: blocksRemaining,
+				can_finalize: canFinalize,
+			},
+			jobs_completed: rep.jobs_completed,
+			jobs_abandoned: rep.jobs_abandoned,
+			current_block: tipBlock.toString(),
+			out_point: match.out_point,
+		});
 	} catch (e) {
 		console.error('agents route error:', e);
 		res.status(502).json({ error: 'upstream request failed' });
