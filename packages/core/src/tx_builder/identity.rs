@@ -13,24 +13,8 @@ use crate::{
 use super::molecule::compute_raw_tx_hash;
 use super::signing::{inject_witness, placeholder_witness, sign_tx};
 
-// Agent identity cell data layout:
-//
-// v0 (50 bytes — original):
+// Agent identity cell data layout (88 bytes):
 //   [0]      version = 0
-//   [1..34]  compressed secp256k1 pubkey (33 bytes)
-//   [34..42] spending_limit_per_tx as u64 LE
-//   [42..50] daily_limit as u64 LE
-//
-// v1 (72 bytes — sub-agent delegation):
-//   [0]      version = 1
-//   [1..34]  compressed secp256k1 pubkey (33 bytes)
-//   [34..42] spending_limit_per_tx as u64 LE
-//   [42..50] daily_limit as u64 LE
-//   [50..70] parent_lock_args (20 bytes, all zeros = root agent)
-//   [70..72] revenue_share_bps (u16 LE, basis points: 1000 = 10%)
-//
-// v2 (88 bytes — on-chain daily spending accumulator):
-//   [0]      version = 2
 //   [1..34]  compressed secp256k1 pubkey (33 bytes)
 //   [34..42] spending_limit_per_tx as u64 LE
 //   [42..50] daily_limit as u64 LE
@@ -38,9 +22,7 @@ use super::signing::{inject_witness, placeholder_witness, sign_tx};
 //   [70..72] revenue_share_bps (u16 LE, basis points: 1000 = 10%)
 //   [72..80] daily_spent as u64 LE (accumulated spending in current day window)
 //   [80..88] last_reset_epoch as u64 LE (epoch number when accumulator last reset)
-const IDENTITY_V0_DATA_SIZE: usize = 50;
-const IDENTITY_V1_DATA_SIZE: usize = 72;
-const IDENTITY_V2_DATA_SIZE: usize = 88;
+const IDENTITY_DATA_SIZE: usize = 88;
 
 // Minimum capacity shannons for an identity cell:
 //   capacity(8) + lock(53) + type_script(33 + 32 args) + data(50) = 176 bytes
@@ -52,52 +34,16 @@ const ESTIMATED_FEE: u64 = 1_000_000;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct IdentityData {
-	pub version: u8,
 	pub pubkey: [u8; 33],
 	pub spending_limit_shannons: u64,
 	pub daily_limit_shannons: u64,
-	/// Parent agent's lock_args (v1+). None for v0, Some([0;20]) for root v1/v2 agents.
-	pub parent_lock_args: Option<[u8; 20]>,
-	/// Revenue share in basis points (v1+). None for v0.
-	pub revenue_share_bps: Option<u16>,
-	/// Accumulated spending in current day window (v2 only). None for v0/v1.
-	pub daily_spent: Option<u64>,
-	/// Epoch number when the daily accumulator was last reset (v2 only). None for v0/v1.
-	pub last_reset_epoch: Option<u64>,
+	pub parent_lock_args: [u8; 20],
+	pub revenue_share_bps: u16,
+	pub daily_spent: u64,
+	pub last_reset_epoch: u64,
 }
 
 pub fn encode_identity_data(
-	pubkey: &[u8; 33],
-	spending_limit_shannons: u64,
-	daily_limit_shannons: u64,
-) -> Vec<u8> {
-	let mut data = Vec::with_capacity(IDENTITY_V0_DATA_SIZE);
-	data.push(0u8);
-	data.extend_from_slice(pubkey);
-	data.extend_from_slice(&spending_limit_shannons.to_le_bytes());
-	data.extend_from_slice(&daily_limit_shannons.to_le_bytes());
-	data
-}
-
-pub fn encode_identity_data_v1(
-	pubkey: &[u8; 33],
-	spending_limit_shannons: u64,
-	daily_limit_shannons: u64,
-	parent_lock_args: &[u8; 20],
-	revenue_share_bps: u16,
-) -> Vec<u8> {
-	let mut data = Vec::with_capacity(IDENTITY_V1_DATA_SIZE);
-	data.push(1u8);
-	data.extend_from_slice(pubkey);
-	data.extend_from_slice(&spending_limit_shannons.to_le_bytes());
-	data.extend_from_slice(&daily_limit_shannons.to_le_bytes());
-	data.extend_from_slice(parent_lock_args);
-	data.extend_from_slice(&revenue_share_bps.to_le_bytes());
-	data
-}
-
-#[allow(dead_code)]
-pub fn encode_identity_data_v2(
 	pubkey: &[u8; 33],
 	spending_limit_shannons: u64,
 	daily_limit_shannons: u64,
@@ -106,8 +52,8 @@ pub fn encode_identity_data_v2(
 	daily_spent: u64,
 	last_reset_epoch: u64,
 ) -> Vec<u8> {
-	let mut data = Vec::with_capacity(IDENTITY_V2_DATA_SIZE);
-	data.push(2u8);
+	let mut data = Vec::with_capacity(IDENTITY_DATA_SIZE);
+	data.push(0u8);
 	data.extend_from_slice(pubkey);
 	data.extend_from_slice(&spending_limit_shannons.to_le_bytes());
 	data.extend_from_slice(&daily_limit_shannons.to_le_bytes());
@@ -119,79 +65,37 @@ pub fn encode_identity_data_v2(
 }
 
 pub fn decode_identity_data(data: &[u8]) -> Result<IdentityData, TxBuildError> {
-	if data.len() < IDENTITY_V0_DATA_SIZE {
+	if data.len() < IDENTITY_DATA_SIZE {
 		return Err(TxBuildError::Rpc(format!(
-			"identity data too short: {} bytes, need at least {}",
+			"identity data too short: {} bytes, need {}",
 			data.len(),
-			IDENTITY_V0_DATA_SIZE
+			IDENTITY_DATA_SIZE
 		)));
 	}
 
-	let version = data[0];
+	if data[0] != 0 {
+		return Err(TxBuildError::Rpc(format!("unknown identity version: {}", data[0])));
+	}
+
 	let mut pubkey = [0u8; 33];
 	pubkey.copy_from_slice(&data[1..34]);
 	let spending_limit_shannons = u64::from_le_bytes(data[34..42].try_into().unwrap());
 	let daily_limit_shannons = u64::from_le_bytes(data[42..50].try_into().unwrap());
+	let mut parent_lock_args = [0u8; 20];
+	parent_lock_args.copy_from_slice(&data[50..70]);
+	let revenue_share_bps = u16::from_le_bytes(data[70..72].try_into().unwrap());
+	let daily_spent = u64::from_le_bytes(data[72..80].try_into().unwrap());
+	let last_reset_epoch = u64::from_le_bytes(data[80..88].try_into().unwrap());
 
-	match version {
-		0 => Ok(IdentityData {
-			version,
-			pubkey,
-			spending_limit_shannons,
-			daily_limit_shannons,
-			parent_lock_args: None,
-			revenue_share_bps: None,
-			daily_spent: None,
-			last_reset_epoch: None,
-		}),
-		1 => {
-			if data.len() < IDENTITY_V1_DATA_SIZE {
-				return Err(TxBuildError::Rpc(format!(
-					"v1 identity data too short: {} bytes, need {}",
-					data.len(),
-					IDENTITY_V1_DATA_SIZE
-				)));
-			}
-			let mut parent_lock_args = [0u8; 20];
-			parent_lock_args.copy_from_slice(&data[50..70]);
-			let revenue_share_bps = u16::from_le_bytes(data[70..72].try_into().unwrap());
-			Ok(IdentityData {
-				version,
-				pubkey,
-				spending_limit_shannons,
-				daily_limit_shannons,
-				parent_lock_args: Some(parent_lock_args),
-				revenue_share_bps: Some(revenue_share_bps),
-				daily_spent: None,
-				last_reset_epoch: None,
-			})
-		}
-		2 => {
-			if data.len() < IDENTITY_V2_DATA_SIZE {
-				return Err(TxBuildError::Rpc(format!(
-					"v2 identity data too short: {} bytes, need {}",
-					data.len(),
-					IDENTITY_V2_DATA_SIZE
-				)));
-			}
-			let mut parent_lock_args = [0u8; 20];
-			parent_lock_args.copy_from_slice(&data[50..70]);
-			let revenue_share_bps = u16::from_le_bytes(data[70..72].try_into().unwrap());
-			let daily_spent = u64::from_le_bytes(data[72..80].try_into().unwrap());
-			let last_reset_epoch = u64::from_le_bytes(data[80..88].try_into().unwrap());
-			Ok(IdentityData {
-				version,
-				pubkey,
-				spending_limit_shannons,
-				daily_limit_shannons,
-				parent_lock_args: Some(parent_lock_args),
-				revenue_share_bps: Some(revenue_share_bps),
-				daily_spent: Some(daily_spent),
-				last_reset_epoch: Some(last_reset_epoch),
-			})
-		}
-		_ => Err(TxBuildError::Rpc(format!("unknown identity version: {version}"))),
-	}
+	Ok(IdentityData {
+		pubkey,
+		spending_limit_shannons,
+		daily_limit_shannons,
+		parent_lock_args,
+		revenue_share_bps,
+		daily_spent,
+		last_reset_epoch,
+	})
 }
 
 pub fn blake2b_256(data: &[u8]) -> [u8; 32] {
@@ -308,6 +212,10 @@ pub async fn build_spawn_agent(
 		compressed_pubkey,
 		spending_limit_shannons,
 		daily_limit_shannons,
+		&[0u8; 20],
+		0,
+		0,
+		0,
 	);
 
 	let placeholder_hex = format!("0x{}", hex::encode(placeholder_witness()));
@@ -476,12 +384,14 @@ pub async fn build_spawn_sub_agent(
 
 	let change_capacity = input_capacity - IDENTITY_CELL_CAPACITY - initial_funding_shannons - ESTIMATED_FEE;
 
-	let identity_data = encode_identity_data_v1(
+	let identity_data = encode_identity_data(
 		child_pubkey,
 		spending_limit_shannons,
 		daily_limit_shannons,
 		parent_lock_args,
 		revenue_share_bps,
+		0,
+		0,
 	);
 
 	let placeholder_hex = format!("0x{}", hex::encode(placeholder_witness()));
@@ -656,115 +566,12 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn encode_identity_data_v0_layout() {
-		let pubkey = [0xAA; 33];
-		let data = encode_identity_data(&pubkey, 100_000_000, 500_000_000);
-		assert_eq!(data.len(), IDENTITY_V0_DATA_SIZE);
-		assert_eq!(data[0], 0, "version must be 0");
-		assert_eq!(&data[1..34], &pubkey);
-		let spending = u64::from_le_bytes(data[34..42].try_into().unwrap());
-		assert_eq!(spending, 100_000_000);
-		let daily = u64::from_le_bytes(data[42..50].try_into().unwrap());
-		assert_eq!(daily, 500_000_000);
-	}
-
-	#[test]
-	fn encode_identity_data_v1_layout() {
-		let pubkey = [0xBB; 33];
-		let parent = [0xCC; 20];
-		let data = encode_identity_data_v1(&pubkey, 200_000_000, 800_000_000, &parent, 1000);
-		assert_eq!(data.len(), IDENTITY_V1_DATA_SIZE);
-		assert_eq!(data[0], 1, "version must be 1");
-		assert_eq!(&data[1..34], &pubkey);
-		let spending = u64::from_le_bytes(data[34..42].try_into().unwrap());
-		assert_eq!(spending, 200_000_000);
-		let daily = u64::from_le_bytes(data[42..50].try_into().unwrap());
-		assert_eq!(daily, 800_000_000);
-		assert_eq!(&data[50..70], &parent);
-		let bps = u16::from_le_bytes(data[70..72].try_into().unwrap());
-		assert_eq!(bps, 1000);
-	}
-
-	#[test]
-	fn decode_identity_v0_roundtrip() {
-		let pubkey = [0xAA; 33];
-		let data = encode_identity_data(&pubkey, 100_000_000, 500_000_000);
-		let decoded = decode_identity_data(&data).unwrap();
-		assert_eq!(decoded.version, 0);
-		assert_eq!(decoded.pubkey, pubkey);
-		assert_eq!(decoded.spending_limit_shannons, 100_000_000);
-		assert_eq!(decoded.daily_limit_shannons, 500_000_000);
-		assert!(decoded.parent_lock_args.is_none());
-		assert!(decoded.revenue_share_bps.is_none());
-		assert!(decoded.daily_spent.is_none());
-		assert!(decoded.last_reset_epoch.is_none());
-	}
-
-	#[test]
-	fn decode_identity_v1_roundtrip() {
-		let pubkey = [0xBB; 33];
-		let parent = [0xCC; 20];
-		let data = encode_identity_data_v1(&pubkey, 200_000_000, 800_000_000, &parent, 1500);
-		let decoded = decode_identity_data(&data).unwrap();
-		assert_eq!(decoded.version, 1);
-		assert_eq!(decoded.pubkey, pubkey);
-		assert_eq!(decoded.spending_limit_shannons, 200_000_000);
-		assert_eq!(decoded.daily_limit_shannons, 800_000_000);
-		assert_eq!(decoded.parent_lock_args, Some(parent));
-		assert_eq!(decoded.revenue_share_bps, Some(1500));
-		assert!(decoded.daily_spent.is_none());
-		assert!(decoded.last_reset_epoch.is_none());
-	}
-
-	#[test]
-	fn decode_identity_v0_backward_compat() {
-		// A v0 identity cell should decode without parent/share/accumulator fields.
-		let pubkey = [0x11; 33];
-		let data = encode_identity_data(&pubkey, 50_000_000, 100_000_000);
-		let decoded = decode_identity_data(&data).unwrap();
-		assert_eq!(decoded.version, 0);
-		assert!(decoded.parent_lock_args.is_none());
-		assert!(decoded.revenue_share_bps.is_none());
-		assert!(decoded.daily_spent.is_none());
-		assert!(decoded.last_reset_epoch.is_none());
-	}
-
-	#[test]
-	fn decode_identity_rejects_short_data() {
-		let data = vec![0u8; 10];
-		assert!(decode_identity_data(&data).is_err());
-	}
-
-	#[test]
-	fn decode_identity_rejects_unknown_version() {
-		let mut data = vec![0u8; 88];
-		data[0] = 99; // unknown version
-		assert!(decode_identity_data(&data).is_err());
-	}
-
-	#[test]
-	fn decode_identity_v1_rejects_short_data() {
-		// 50 bytes with version=1 should fail (needs 72).
-		let mut data = vec![0u8; 50];
-		data[0] = 1;
-		assert!(decode_identity_data(&data).is_err());
-	}
-
-	#[test]
-	fn decode_identity_v2_rejects_short_data() {
-		// 72 bytes with version=2 should fail (needs 88).
-		let mut data = vec![0u8; 72];
-		data[0] = 2;
-		assert!(decode_identity_data(&data).is_err());
-	}
-
-	#[test]
-	fn encode_identity_data_v2_layout() {
+	fn encode_identity_data_layout() {
 		let pubkey = [0xEE; 33];
 		let parent = [0xFF; 20];
-		let data = encode_identity_data_v2(&pubkey, 300_000_000, 1_000_000_000, &parent, 2000, 0, 0);
-		assert_eq!(data.len(), IDENTITY_V2_DATA_SIZE);
-		assert_eq!(data[0], 2, "version must be 2");
+		let data = encode_identity_data(&pubkey, 300_000_000, 1_000_000_000, &parent, 2000, 0, 0);
+		assert_eq!(data.len(), IDENTITY_DATA_SIZE);
+		assert_eq!(data[0], 0, "version must be 0");
 		assert_eq!(&data[1..34], &pubkey);
 		let spending = u64::from_le_bytes(data[34..42].try_into().unwrap());
 		assert_eq!(spending, 300_000_000);
@@ -780,48 +587,57 @@ mod tests {
 	}
 
 	#[test]
-	fn decode_identity_v2_roundtrip() {
+	fn decode_identity_roundtrip() {
 		let pubkey = [0xEE; 33];
 		let parent = [0xFF; 20];
-		let data = encode_identity_data_v2(&pubkey, 300_000_000, 1_000_000_000, &parent, 2000, 50_000_000, 42);
+		let data = encode_identity_data(&pubkey, 300_000_000, 1_000_000_000, &parent, 2000, 50_000_000, 42);
 		let decoded = decode_identity_data(&data).unwrap();
-		assert_eq!(decoded.version, 2);
 		assert_eq!(decoded.pubkey, pubkey);
 		assert_eq!(decoded.spending_limit_shannons, 300_000_000);
 		assert_eq!(decoded.daily_limit_shannons, 1_000_000_000);
-		assert_eq!(decoded.parent_lock_args, Some(parent));
-		assert_eq!(decoded.revenue_share_bps, Some(2000));
-		assert_eq!(decoded.daily_spent, Some(50_000_000));
-		assert_eq!(decoded.last_reset_epoch, Some(42));
+		assert_eq!(decoded.parent_lock_args, parent);
+		assert_eq!(decoded.revenue_share_bps, 2000);
+		assert_eq!(decoded.daily_spent, 50_000_000);
+		assert_eq!(decoded.last_reset_epoch, 42);
 	}
 
 	#[test]
-	fn v2_fresh_accumulator() {
+	fn fresh_accumulator() {
 		let pubkey = [0xAA; 33];
 		let parent = [0u8; 20];
-		let data = encode_identity_data_v2(&pubkey, 100_000_000, 500_000_000, &parent, 0, 0, 0);
+		let data = encode_identity_data(&pubkey, 100_000_000, 500_000_000, &parent, 0, 0, 0);
 		let decoded = decode_identity_data(&data).unwrap();
-		assert_eq!(decoded.daily_spent, Some(0));
-		assert_eq!(decoded.last_reset_epoch, Some(0));
+		assert_eq!(decoded.daily_spent, 0);
+		assert_eq!(decoded.last_reset_epoch, 0);
 	}
 
 	#[test]
-	fn v1_root_agent_has_zero_parent() {
+	fn root_agent_has_zero_parent() {
 		let pubkey = [0xDD; 33];
 		let zero_parent = [0u8; 20];
-		let data = encode_identity_data_v1(&pubkey, 100_000_000, 500_000_000, &zero_parent, 0);
+		let data = encode_identity_data(&pubkey, 100_000_000, 500_000_000, &zero_parent, 0, 0, 0);
 		let decoded = decode_identity_data(&data).unwrap();
-		assert_eq!(decoded.parent_lock_args, Some([0u8; 20]));
-		assert_eq!(decoded.revenue_share_bps, Some(0));
+		assert_eq!(decoded.parent_lock_args, [0u8; 20]);
+		assert_eq!(decoded.revenue_share_bps, 0);
+	}
+
+	#[test]
+	fn decode_identity_rejects_short_data() {
+		let data = vec![0u8; 10];
+		assert!(decode_identity_data(&data).is_err());
+	}
+
+	#[test]
+	fn decode_identity_rejects_unknown_version() {
+		let mut data = vec![0u8; 88];
+		data[0] = 99;
+		assert!(decode_identity_data(&data).is_err());
 	}
 
 	#[test]
 	fn blake2b_256_ckb_personalization() {
-		// Known CKB hash: blake2b("ckb-default-hash", []) should produce the standard empty hash.
 		let hash = blake2b_256(&[]);
-		// The hash should be deterministic and 32 bytes.
 		assert_eq!(hash.len(), 32);
-		// Verify it's not all zeros (the hash of empty with CKB personalization is non-trivial).
 		assert!(!hash.iter().all(|&b| b == 0));
 	}
 

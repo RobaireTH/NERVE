@@ -117,7 +117,7 @@ fn create_attestation(
 ///   [22..54]  capability_hash: [u8; 32]
 ///   [54..86]  proof_root_snapshot: [u8; 32]
 ///   [86..118] settlement_hash: [u8; 32]
-fn encode_capability_data_v1(
+fn encode_reputation_capability_data(
 	agent_lock_args: &[u8; 20],
 	capability_hash: &[u8; 32],
 	proof_root: &[u8; 32],
@@ -161,7 +161,7 @@ async fn find_reputation_cell_outpoint(
 
 /// Includes the agent's reputation cell as a cell_dep so the type script can
 /// cross-reference the proof_root_snapshot against the live on-chain proof_root.
-pub async fn build_mint_capability_v1(
+pub async fn build_mint_reputation_capability(
 	state: &AppState,
 	capability_hash: &[u8; 32],
 	proof_root: &[u8; 32],
@@ -170,7 +170,7 @@ pub async fn build_mint_capability_v1(
 	let (type_code_hash, dep_tx_hash) = cap_nft_type_env()?;
 	let agent_lock_args = super::job::parse_lock_args_20(&state.lock_args)?;
 
-	let nft_data = encode_capability_data_v1(&agent_lock_args, capability_hash, proof_root, settlement_hash);
+	let nft_data = encode_reputation_capability_data(&agent_lock_args, capability_hash, proof_root, settlement_hash);
 
 	let occupied_bytes = 8 + 53 + 33 + nft_data.len() as u64;
 	let nft_capacity = std::cmp::max(occupied_bytes * 100_000_000, CAP_NFT_CELL_MIN);

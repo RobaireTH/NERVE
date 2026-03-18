@@ -576,21 +576,11 @@ fn compute_revenue_split(
 		return (reward_shannons, None);
 	};
 
-	// Only v1 identities have delegation fields.
-	if id.version == 0 {
+	if id.parent_lock_args == [0u8; 20] {
 		return (reward_shannons, None);
 	}
 
-	let Some(parent_lock_args) = id.parent_lock_args else {
-		return (reward_shannons, None);
-	};
-
-	// All-zero parent means root agent — no revenue sharing.
-	if parent_lock_args == [0u8; 20] {
-		return (reward_shannons, None);
-	}
-
-	let bps = id.revenue_share_bps.unwrap_or(0);
+	let bps = id.revenue_share_bps;
 	if bps == 0 {
 		return (reward_shannons, None);
 	}
@@ -603,7 +593,7 @@ fn compute_revenue_split(
 		return (reward_shannons, None);
 	}
 
-	(worker_amount, Some((parent_lock_args, parent_amount)))
+	(worker_amount, Some((id.parent_lock_args, parent_amount)))
 }
 
 /// For non-Open jobs, includes a header_dep so the type script can verify TTL
@@ -721,17 +711,16 @@ mod tests {
 	}
 
 	#[test]
-	fn revenue_split_v0_identity() {
+	fn revenue_split_root_agent() {
 		let reward = 200 * 100_000_000u64;
 		let id = IdentityData {
-			version: 0,
 			pubkey: [0xAA; 33],
 			spending_limit_shannons: 100_000_000,
 			daily_limit_shannons: 500_000_000,
-			parent_lock_args: None,
-			revenue_share_bps: None,
-			daily_spent: None,
-			last_reset_epoch: None,
+			parent_lock_args: [0u8; 20],
+			revenue_share_bps: 0,
+			daily_spent: 0,
+			last_reset_epoch: 0,
 		};
 		let (worker, parent) = compute_revenue_split(reward, &Some(id));
 		assert_eq!(worker, reward);
@@ -739,21 +728,19 @@ mod tests {
 	}
 
 	#[test]
-	fn revenue_split_v1_with_parent() {
-		let reward = 1000 * 100_000_000u64; // 1000 CKB — large enough for both shares to exceed 61 CKB.
+	fn revenue_split_with_parent() {
+		let reward = 1000 * 100_000_000u64;
 		let parent_args = [0xCC; 20];
 		let id = IdentityData {
-			version: 1,
 			pubkey: [0xBB; 33],
 			spending_limit_shannons: 100_000_000,
 			daily_limit_shannons: 500_000_000,
-			parent_lock_args: Some(parent_args),
-			revenue_share_bps: Some(1000), // 10%
-			daily_spent: None,
-			last_reset_epoch: None,
+			parent_lock_args: parent_args,
+			revenue_share_bps: 1000, // 10%
+			daily_spent: 0,
+			last_reset_epoch: 0,
 		};
 		let (worker, parent) = compute_revenue_split(reward, &Some(id));
-		// 10% of 1000 CKB = 100 CKB parent share, 900 CKB worker share.
 		assert_eq!(worker, 900 * 100_000_000);
 		let (p_args, p_amount) = parent.unwrap();
 		assert_eq!(p_args, parent_args);
@@ -761,17 +748,16 @@ mod tests {
 	}
 
 	#[test]
-	fn revenue_split_v1_zero_parent_is_root() {
+	fn revenue_split_zero_parent_is_root() {
 		let reward = 200 * 100_000_000u64;
 		let id = IdentityData {
-			version: 1,
 			pubkey: [0xBB; 33],
 			spending_limit_shannons: 100_000_000,
 			daily_limit_shannons: 500_000_000,
-			parent_lock_args: Some([0u8; 20]), // root agent
-			revenue_share_bps: Some(1000),
-			daily_spent: None,
-			last_reset_epoch: None,
+			parent_lock_args: [0u8; 20],
+			revenue_share_bps: 1000,
+			daily_spent: 0,
+			last_reset_epoch: 0,
 		};
 		let (worker, parent) = compute_revenue_split(reward, &Some(id));
 		assert_eq!(worker, reward);
@@ -780,17 +766,15 @@ mod tests {
 
 	#[test]
 	fn revenue_split_below_min_cell_gives_worker_100pct() {
-		// Reward of 70 CKB with 10% share = 7 CKB parent share (below 61 CKB minimum).
 		let reward = 70 * 100_000_000u64;
 		let id = IdentityData {
-			version: 1,
 			pubkey: [0xBB; 33],
 			spending_limit_shannons: 100_000_000,
 			daily_limit_shannons: 500_000_000,
-			parent_lock_args: Some([0xCC; 20]),
-			revenue_share_bps: Some(1000), // 10%
-			daily_spent: None,
-			last_reset_epoch: None,
+			parent_lock_args: [0xCC; 20],
+			revenue_share_bps: 1000, // 10%
+			daily_spent: 0,
+			last_reset_epoch: 0,
 		};
 		let (worker, parent) = compute_revenue_split(reward, &Some(id));
 		assert_eq!(worker, reward);
@@ -801,14 +785,13 @@ mod tests {
 	fn revenue_split_zero_bps() {
 		let reward = 200 * 100_000_000u64;
 		let id = IdentityData {
-			version: 1,
 			pubkey: [0xBB; 33],
 			spending_limit_shannons: 100_000_000,
 			daily_limit_shannons: 500_000_000,
-			parent_lock_args: Some([0xCC; 20]),
-			revenue_share_bps: Some(0),
-			daily_spent: None,
-			last_reset_epoch: None,
+			parent_lock_args: [0xCC; 20],
+			revenue_share_bps: 0,
+			daily_spent: 0,
+			last_reset_epoch: 0,
 		};
 		let (worker, parent) = compute_revenue_split(reward, &Some(id));
 		assert_eq!(worker, reward);

@@ -17,13 +17,9 @@ use super::{
 
 const ESTIMATED_FEE: u64 = 2_000_000;
 const MIN_CELL_CAPACITY: u64 = 61 * 100_000_000;
-const REP_DATA_SIZE: usize = 46;
-const REP_DATA_V1_SIZE: usize = 110;
-// Minimum capacity for a reputation cell:
-//   cap(8) + lock(53) + type(33 + 32 args) + data(46) = 172 bytes → 172 CKB.
-const REP_CELL_CAPACITY: u64 = 172 * 100_000_000;
-// V1 capacity: cap(8) + lock(53) + type(65) + data(110) = 236 bytes → 236 CKB.
-const REP_CELL_CAPACITY_V1: u64 = 236 * 100_000_000;
+const REP_DATA_SIZE: usize = 110;
+// Capacity: cap(8) + lock(53) + type(65) + data(110) = 236 bytes → 236 CKB.
+const REP_CELL_CAPACITY: u64 = 236 * 100_000_000;
 
 fn rep_type_env() -> Result<(String, String), TxBuildError> {
 	let code_hash = std::env::var("REPUTATION_TYPE_CODE_HASH").map_err(|_| {
@@ -62,44 +58,16 @@ fn placeholder_witnesses(count: usize) -> Vec<Value> {
 		.collect()
 }
 
-/// Layout:
+/// Layout (110 bytes):
 ///   [0]       version = 0
 ///   [1]       pending_type: 0=idle, 1=propose_completed, 2=propose_abandoned
 ///   [2..10]   jobs_completed: u64 LE
 ///   [10..18]  jobs_abandoned: u64 LE
 ///   [18..26]  pending_expires_at: u64 LE
 ///   [26..46]  agent_lock_args: [u8; 20]
+///   [46..78]  proof_root: [u8; 32]
+///   [78..110] pending_settlement_hash: [u8; 32]
 fn encode_rep_data(
-	pending_type: u8,
-	jobs_completed: u64,
-	jobs_abandoned: u64,
-	pending_expires_at: u64,
-	agent_lock_args: &[u8; 20],
-) -> Vec<u8> {
-	let mut data = Vec::with_capacity(REP_DATA_SIZE);
-	data.push(0u8);
-	data.push(pending_type);
-	data.extend_from_slice(&jobs_completed.to_le_bytes());
-	data.extend_from_slice(&jobs_abandoned.to_le_bytes());
-	data.extend_from_slice(&pending_expires_at.to_le_bytes());
-	data.extend_from_slice(agent_lock_args);
-	data
-}
-
-fn parse_rep_data(data: &[u8]) -> Result<(u8, u64, u64, u64, [u8; 20]), TxBuildError> {
-	if data.len() < REP_DATA_SIZE {
-		return Err(TxBuildError::Rpc("reputation cell data too short".into()));
-	}
-	let pending_type = data[1];
-	let jobs_completed = u64::from_le_bytes(data[2..10].try_into().unwrap());
-	let jobs_abandoned = u64::from_le_bytes(data[10..18].try_into().unwrap());
-	let pending_expires_at = u64::from_le_bytes(data[18..26].try_into().unwrap());
-	let mut agent_lock_args = [0u8; 20];
-	agent_lock_args.copy_from_slice(&data[26..46]);
-	Ok((pending_type, jobs_completed, jobs_abandoned, pending_expires_at, agent_lock_args))
-}
-
-fn encode_rep_data_v1(
 	pending_type: u8,
 	jobs_completed: u64,
 	jobs_abandoned: u64,
@@ -108,8 +76,8 @@ fn encode_rep_data_v1(
 	proof_root: &[u8; 32],
 	settlement_hash: &[u8; 32],
 ) -> Vec<u8> {
-	let mut data = Vec::with_capacity(REP_DATA_V1_SIZE);
-	data.push(1u8);
+	let mut data = Vec::with_capacity(REP_DATA_SIZE);
+	data.push(0u8);
 	data.push(pending_type);
 	data.extend_from_slice(&jobs_completed.to_le_bytes());
 	data.extend_from_slice(&jobs_abandoned.to_le_bytes());
@@ -120,14 +88,22 @@ fn encode_rep_data_v1(
 	data
 }
 
-fn parse_rep_data_v1(
+fn parse_rep_data(
 	data: &[u8],
 ) -> Result<(u8, u64, u64, u64, [u8; 20], [u8; 32], [u8; 32]), TxBuildError> {
-	let (pending_type, jobs_completed, jobs_abandoned, pending_expires_at, agent_lock_args) =
-		parse_rep_data(data)?;
-	if data.len() < REP_DATA_V1_SIZE {
-		return Err(TxBuildError::Rpc("V1 reputation cell data too short (need 110 bytes)".into()));
+	if data.len() < REP_DATA_SIZE {
+		return Err(TxBuildError::Rpc(format!(
+			"reputation cell data too short: {} bytes, need {}",
+			data.len(),
+			REP_DATA_SIZE,
+		)));
 	}
+	let pending_type = data[1];
+	let jobs_completed = u64::from_le_bytes(data[2..10].try_into().unwrap());
+	let jobs_abandoned = u64::from_le_bytes(data[10..18].try_into().unwrap());
+	let pending_expires_at = u64::from_le_bytes(data[18..26].try_into().unwrap());
+	let mut agent_lock_args = [0u8; 20];
+	agent_lock_args.copy_from_slice(&data[26..46]);
 	let mut proof_root = [0u8; 32];
 	proof_root.copy_from_slice(&data[46..78]);
 	let mut settlement_hash = [0u8; 32];
@@ -210,7 +186,7 @@ pub async fn build_create_reputation(
 	let (type_code_hash, dep_tx_hash) = rep_type_env()?;
 	let agent_lock_args = super::job::parse_lock_args_20(&state.lock_args)?;
 
-	let rep_data = encode_rep_data(0, 0, 0, 0, &agent_lock_args);
+	let rep_data = encode_rep_data(0, 0, 0, 0, &agent_lock_args, &[0u8; 32], &[0u8; 32]);
 
 	let needed = REP_CELL_CAPACITY + ESTIMATED_FEE + MIN_CELL_CAPACITY;
 	let agent_lock = our_lock(state);
@@ -286,98 +262,16 @@ pub async fn build_create_reputation(
 	Ok((tx, tx_hash_str))
 }
 
-pub async fn build_create_reputation_v1(
-	state: &AppState,
-) -> Result<(Value, String), TxBuildError> {
-	let (type_code_hash, dep_tx_hash) = rep_type_env()?;
-	let agent_lock_args = super::job::parse_lock_args_20(&state.lock_args)?;
-
-	let rep_data = encode_rep_data_v1(0, 0, 0, 0, &agent_lock_args, &[0u8; 32], &[0u8; 32]);
-
-	let needed = REP_CELL_CAPACITY_V1 + ESTIMATED_FEE + MIN_CELL_CAPACITY;
-	let agent_lock = our_lock(state);
-	let cells = state.ckb.get_cells_by_lock(&agent_lock, 200).await?;
-
-	let mut inputs = Vec::new();
-	let mut input_capacity: u64 = 0;
-	let mut first_input_tx_hash: Option<String> = None;
-	let mut first_input_index: u32 = 0;
-	for cell in &cells.objects {
-		if cell.output.type_script.is_some() {
-			continue;
-		}
-		let cap = parse_capacity_hex(&cell.output.capacity)?;
-		if first_input_tx_hash.is_none() {
-			first_input_tx_hash = Some(cell.out_point.tx_hash.clone());
-			first_input_index = u32::from_str_radix(
-				cell.out_point.index.trim_start_matches("0x"),
-				16,
-			)
-			.unwrap_or(0);
-		}
-		inputs.push(json!({ "previous_output": cell.out_point, "since": "0x0" }));
-		input_capacity += cap;
-		if input_capacity >= needed {
-			break;
-		}
-	}
-	if input_capacity < needed {
-		return Err(TxBuildError::InsufficientFunds {
-			need: needed as f64 / 1e8,
-			have: input_capacity as f64 / 1e8,
-		});
-	}
-
-	let first_tx_hash = first_input_tx_hash
-		.ok_or_else(|| TxBuildError::Rpc("no input cells available for type_id".into()))?;
-
-	let type_id_args = calculate_type_id(&first_tx_hash, first_input_index, 0, 0)?;
-
-	let change_capacity = input_capacity - REP_CELL_CAPACITY_V1 - ESTIMATED_FEE;
-	let witnesses = placeholder_witnesses(inputs.len());
-
-	let tx = json!({
-		"version": "0x0",
-		"cell_deps": [
-			{ "out_point": { "tx_hash": SECP256K1_DEP_TX_HASH, "index": "0x0" }, "dep_type": "dep_group" },
-			{ "out_point": { "tx_hash": dep_tx_hash, "index": "0x0" }, "dep_type": "code" },
-		],
-		"header_deps": [],
-		"inputs": inputs,
-		"outputs": [
-			{
-				"capacity": format!("{:#x}", REP_CELL_CAPACITY_V1),
-				"lock": our_lock(state),
-				"type": { "code_hash": type_code_hash, "hash_type": "data1", "args": type_id_args },
-			},
-			{
-				"capacity": format!("{:#x}", change_capacity),
-				"lock": our_lock(state),
-				"type": null,
-			},
-		],
-		"outputs_data": [format!("0x{}", hex::encode(&rep_data)), "0x"],
-		"witnesses": witnesses,
-	});
-
-	let tx_hash_str = compute_raw_tx_hash(&tx)?;
-	let signature = sign_tx(&tx_hash_str, &state.private_key, inputs.len())?;
-	let mut tx = tx;
-	inject_witness(&mut tx, &signature);
-
-	Ok((tx, tx_hash_str))
-}
-
 /// `propose_type`: 1 = completed, 2 = abandoned.
 /// `dispute_window_blocks`: number of blocks until the proposal can be finalized.
-/// `settlement_hash`: required for V1 cells — evidence hash linking to a real job completion.
+/// `settlement_hash`: evidence hash linking to a real job completion.
 pub async fn build_propose_reputation(
 	state: &AppState,
 	rep_tx_hash: &str,
 	rep_index: u32,
 	propose_type: u8,
 	dispute_window_blocks: u64,
-	settlement_hash: Option<[u8; 32]>,
+	settlement_hash: [u8; 32],
 ) -> Result<(Value, String), TxBuildError> {
 	let (type_code_hash, dep_tx_hash) = rep_type_env()?;
 
@@ -389,7 +283,7 @@ pub async fn build_propose_reputation(
 
 	let (rep_capacity, rep_data_bytes, type_args) =
 		fetch_rep_cell(state, rep_tx_hash, rep_index).await?;
-	let (pending_type, jobs_completed, jobs_abandoned, _, agent_lock_args) =
+	let (pending_type, jobs_completed, jobs_abandoned, _, agent_lock_args, proof_root, _) =
 		parse_rep_data(&rep_data_bytes)?;
 
 	if pending_type != 0 {
@@ -401,38 +295,15 @@ pub async fn build_propose_reputation(
 	let tip = state.ckb.get_tip_block_number().await?;
 	let expires_at = tip + dispute_window_blocks;
 
-	let version = rep_data_bytes[0];
-
-	let new_data = if version >= 1 {
-		// V1: settlement_hash is required.
-		let sh = settlement_hash.ok_or_else(|| {
-			TxBuildError::ProofVerificationError(
-				"settlement_hash required for V1 reputation proposals".into(),
-			)
-		})?;
-		let proof_root = {
-			let mut pr = [0u8; 32];
-			pr.copy_from_slice(&rep_data_bytes[46..78]);
-			pr
-		};
-		encode_rep_data_v1(
-			propose_type,
-			jobs_completed,
-			jobs_abandoned,
-			expires_at,
-			&agent_lock_args,
-			&proof_root,
-			&sh,
-		)
-	} else {
-		encode_rep_data(
-			propose_type,
-			jobs_completed,
-			jobs_abandoned,
-			expires_at,
-			&agent_lock_args,
-		)
-	};
+	let new_data = encode_rep_data(
+		propose_type,
+		jobs_completed,
+		jobs_abandoned,
+		expires_at,
+		&agent_lock_args,
+		&proof_root,
+		&settlement_hash,
+	);
 
 	// Fee inputs.
 	let (fee_inputs, fee_capacity) = gather_fee_inputs(state, ESTIMATED_FEE).await?;
@@ -488,7 +359,7 @@ pub async fn build_finalize_reputation(
 
 	let (rep_capacity, rep_data_bytes, type_args) =
 		fetch_rep_cell(state, rep_tx_hash, rep_index).await?;
-	let (pending_type, jobs_completed, jobs_abandoned, pending_expires_at, agent_lock_args) =
+	let (pending_type, jobs_completed, jobs_abandoned, pending_expires_at, agent_lock_args, proof_root, settlement_hash) =
 		parse_rep_data(&rep_data_bytes)?;
 
 	if pending_type == 0 {
@@ -501,17 +372,8 @@ pub async fn build_finalize_reputation(
 		_ => return Err(TxBuildError::Rpc(format!("unknown pending_type: {pending_type}"))),
 	};
 
-	let version = rep_data_bytes[0];
-
-	// Finalized: pending_type=0, pending_expires_at=0.
-	let new_data = if version >= 1 {
-		let (_, _, _, _, _, old_proof_root, old_settlement) =
-			parse_rep_data_v1(&rep_data_bytes)?;
-		let new_proof_root = compute_proof_root(&old_proof_root, &old_settlement);
-		encode_rep_data_v1(0, new_completed, new_abandoned, 0, &agent_lock_args, &new_proof_root, &[0u8; 32])
-	} else {
-		encode_rep_data(0, new_completed, new_abandoned, 0, &agent_lock_args)
-	};
+	let new_proof_root = compute_proof_root(&proof_root, &settlement_hash);
+	let new_data = encode_rep_data(0, new_completed, new_abandoned, 0, &agent_lock_args, &new_proof_root, &[0u8; 32]);
 
 	let (fee_inputs, fee_capacity) = gather_fee_inputs(state, ESTIMATED_FEE).await?;
 	let change_capacity = fee_capacity - ESTIMATED_FEE;
@@ -537,77 +399,6 @@ pub async fn build_finalize_reputation(
 		"outputs": [
 			{
 				"capacity": format!("{:#x}", rep_capacity),
-				"lock": our_lock(state),
-				"type": { "code_hash": type_code_hash, "hash_type": "data1", "args": type_args },
-			},
-			{
-				"capacity": format!("{:#x}", change_capacity),
-				"lock": our_lock(state),
-				"type": null,
-			},
-		],
-		"outputs_data": [format!("0x{}", hex::encode(&new_data)), "0x"],
-		"witnesses": witnesses,
-	});
-
-	let tx_hash_str = compute_raw_tx_hash(&tx)?;
-	let signature = sign_tx(&tx_hash_str, &state.private_key, all_inputs.len())?;
-	let mut tx = tx;
-	inject_witness(&mut tx, &signature);
-
-	Ok((tx, tx_hash_str))
-}
-
-/// Migrates a V0 Idle reputation cell to V1 with zero proof fields.
-pub async fn build_migrate_reputation_v1(
-	state: &AppState,
-	rep_tx_hash: &str,
-	rep_index: u32,
-) -> Result<(Value, String), TxBuildError> {
-	let (type_code_hash, dep_tx_hash) = rep_type_env()?;
-
-	let (rep_capacity, rep_data_bytes, type_args) =
-		fetch_rep_cell(state, rep_tx_hash, rep_index).await?;
-
-	if rep_data_bytes[0] != 0 {
-		return Err(TxBuildError::Rpc("reputation cell is already V1 or higher".into()));
-	}
-
-	let (pending_type, jobs_completed, jobs_abandoned, _, agent_lock_args) =
-		parse_rep_data(&rep_data_bytes)?;
-
-	if pending_type != 0 {
-		return Err(TxBuildError::Rpc(
-			"can only migrate Idle reputation cells (pending_type must be 0)".into(),
-		));
-	}
-
-	let new_data = encode_rep_data_v1(0, jobs_completed, jobs_abandoned, 0, &agent_lock_args, &[0u8; 32], &[0u8; 32]);
-
-	// V1 needs more capacity than V0.
-	let extra_capacity = REP_CELL_CAPACITY_V1 - rep_capacity;
-	let fee_needed = ESTIMATED_FEE + extra_capacity;
-	let (fee_inputs, fee_capacity) = gather_fee_inputs(state, fee_needed).await?;
-	let change_capacity = fee_capacity - fee_needed;
-
-	let mut all_inputs = vec![json!({
-		"previous_output": { "tx_hash": rep_tx_hash, "index": format!("{:#x}", rep_index) },
-		"since": "0x0",
-	})];
-	all_inputs.extend(fee_inputs);
-	let witnesses = placeholder_witnesses(all_inputs.len());
-
-	let tx = json!({
-		"version": "0x0",
-		"cell_deps": [
-			{ "out_point": { "tx_hash": SECP256K1_DEP_TX_HASH, "index": "0x0" }, "dep_type": "dep_group" },
-			{ "out_point": { "tx_hash": dep_tx_hash, "index": "0x0" }, "dep_type": "code" },
-		],
-		"header_deps": [],
-		"inputs": all_inputs,
-		"outputs": [
-			{
-				"capacity": format!("{:#x}", REP_CELL_CAPACITY_V1),
 				"lock": our_lock(state),
 				"type": { "code_hash": type_code_hash, "hash_type": "data1", "args": type_args },
 			},
@@ -665,7 +456,9 @@ mod tests {
 	#[test]
 	fn encode_rep_data_layout() {
 		let agent = [0xBB; 20];
-		let data = encode_rep_data(1, 10, 3, 999, &agent);
+		let proof_root = [0xAA; 32];
+		let settlement = [0x11; 32];
+		let data = encode_rep_data(1, 10, 3, 999, &agent, &proof_root, &settlement);
 		assert_eq!(data.len(), REP_DATA_SIZE);
 		assert_eq!(data[0], 0, "version");
 		assert_eq!(data[1], 1, "pending_type");
@@ -676,43 +469,30 @@ mod tests {
 		let expires = u64::from_le_bytes(data[18..26].try_into().unwrap());
 		assert_eq!(expires, 999);
 		assert_eq!(&data[26..46], &agent);
+		assert_eq!(&data[46..78], &proof_root);
+		assert_eq!(&data[78..110], &settlement);
 	}
 
 	#[test]
 	fn encode_parse_roundtrip() {
 		let agent = [0xCC; 20];
-		let data = encode_rep_data(2, 42, 7, 12345, &agent);
-		let (pt, c, a, e, la) = parse_rep_data(&data).unwrap();
+		let proof_root = [0xDD; 32];
+		let settlement = [0xEE; 32];
+		let data = encode_rep_data(2, 42, 7, 12345, &agent, &proof_root, &settlement);
+		let (pt, c, a, e, la, pr, sh) = parse_rep_data(&data).unwrap();
 		assert_eq!(pt, 2);
 		assert_eq!(c, 42);
 		assert_eq!(a, 7);
 		assert_eq!(e, 12345);
 		assert_eq!(la, agent);
+		assert_eq!(pr, proof_root);
+		assert_eq!(sh, settlement);
 	}
 
 	#[test]
 	fn parse_rep_data_rejects_short() {
 		let short = vec![0u8; 10];
 		assert!(parse_rep_data(&short).is_err());
-	}
-
-	#[test]
-	fn encode_parse_v1_roundtrip() {
-		let agent = [0xDD; 20];
-		let proof_root = [0xAA; 32];
-		let settlement = [0xBB; 32];
-		let data = encode_rep_data_v1(1, 5, 2, 999, &agent, &proof_root, &settlement);
-		assert_eq!(data.len(), REP_DATA_V1_SIZE);
-		assert_eq!(data[0], 1, "version");
-
-		let (pt, c, a, e, la, pr, sh) = parse_rep_data_v1(&data).unwrap();
-		assert_eq!(pt, 1);
-		assert_eq!(c, 5);
-		assert_eq!(a, 2);
-		assert_eq!(e, 999);
-		assert_eq!(la, agent);
-		assert_eq!(pr, proof_root);
-		assert_eq!(sh, settlement);
 	}
 
 	#[test]
