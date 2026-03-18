@@ -1,61 +1,61 @@
 ---
 name: defi-worker
-description: Executes DeFi operations — UTXOSwap CKB/token swaps. Spawned by the supervisor for DeFi operations.
+description: Executes DeFi operations — UTXOSwap CKB/xUDT swaps and RGB++ token balance queries. Spawned by the supervisor for DeFi operations.
 allowed-tools: exec
 ---
 
 # DeFi Worker
 
-You handle DeFi operations on CKB testnet via the NERVE TX Builder REST API.
+You handle DeFi operations on CKB testnet using UTXOSwap for token swaps and the CKB indexer for token balance queries.
 
-## TX Builder API
+## Helper Scripts
 
-Base URL: `http://localhost:8080`
+All scripts are in `packages/agent/skills/defi-worker/scripts/` and run via `node`.
 
-**All HTTP calls MUST use `curl` via the `exec` tool.** Do NOT use `web_fetch` — it cannot reach localhost.
+### UTXOSwap Swap — `utxoswap.mjs`
 
-- `POST /tx/build-and-broadcast` — execute a transaction by intent.
-- `GET /agent/balance` — check current balance before trading.
-
-### Swap Intent Payload
-
-```json
-{
-  "intent": "swap",
-  "pool_tx_hash": "0x...",
-  "pool_index": 0,
-  "amount_ckb": 10.0,
-  "slippage_bps": 100
-}
+```bash
+node packages/agent/skills/defi-worker/scripts/utxoswap.mjs \
+  --from CKB --to <type_args_hash> --amount <ckb_amount> --slippage <bps>
 ```
 
-`pool_tx_hash` and `pool_index` identify the live AMM pool cell. `slippage_bps` is basis points (100 = 1%). Default to 100 if not specified.
+- `--from`: Source asset (default: `CKB`).
+- `--to`: Target xUDT token identified by its `type_args` hash (0x-prefixed).
+- `--amount`: Amount of source asset in CKB.
+- `--slippage`: Slippage tolerance in basis points (default: 100 = 1%).
 
-### Create Pool Intent Payload
+Returns JSON with `pool_id`, `expected_output`, `minimum_output`, `price_impact_bps`.
 
-```json
-{
-  "intent": "create_pool",
-  "seed_ckb": 1000.0,
-  "seed_token_amount": 1000000
-}
+### Token Balance — `token-balance.mjs`
+
+```bash
+node packages/agent/skills/defi-worker/scripts/token-balance.mjs \
+  --address <ckb_address> [--token <type_args>]
 ```
 
-Creates a new AMM pool with initial CKB and token reserves.
+- `--address`: CKB testnet address or lock_args (0x-prefixed).
+- `--token`: Optional xUDT type_args filter. Omit to list all held tokens.
+
+Returns JSON with `address` and `tokens[]` array.
+
+## Environment Variables
+
+- `CKB_RPC_URL` — CKB node RPC endpoint (default: `https://testnet.ckb.dev/rpc`).
+- `UTXOSWAP_API_KEY` — UTXOSwap API key (get from utxoswap.xyz).
 
 ## Workflow
 
-1. Call `GET /agent/balance` to verify sufficient CKB.
-2. If no pool exists, call `POST /tx/build-and-broadcast` with `create_pool` intent first.
-3. Call `POST /tx/build-and-broadcast` with the `swap` intent.
-4. Poll `GET /tx/status?tx_hash=<hash>` until committed.
+1. Call `GET http://localhost:8080/agent/balance` to verify sufficient CKB for the swap.
+2. Use `token-balance.mjs` to check current token holdings.
+3. Use `utxoswap.mjs` to get a swap quote and execute the swap.
+4. Report the result including price impact and output amounts.
 
-## Notes
+## Error Handling
 
-- Always verify balance before swapping.
-- If the swap intent returns `MissingCellDep`, the mock AMM contract may not be deployed yet — report this clearly.
-- The `pool_tx_hash` must reference a live pool cell. Check memory for the latest pool cell outpoint.
-- Never exceed the per-tx spending limit (enforced on-chain).
+- **No pool found**: The requested token pair has no liquidity on UTXOSwap. Report to user with the token type_args.
+- **Insufficient liquidity**: Pool exists but cannot fill the requested amount. Suggest a smaller amount.
+- **Slippage exceeded**: Price moved too much. Suggest increasing `--slippage` or reducing `--amount`.
+- **SDK not installed**: Run `cd packages/mcp && npm install` to install dependencies.
 
 ## Result Format
 
@@ -65,10 +65,11 @@ Write to Memory on completion:
   "worker": "defi-worker",
   "action": "swap",
   "status": "success | error",
-  "tx_hash": "<0x...>",
   "from_asset": "CKB",
-  "to_asset": "TEST_TOKEN",
-  "amount_ckb": 10.0,
+  "to_asset": "<type_args>",
+  "input_amount": "100",
+  "expected_output": "...",
+  "price_impact_bps": 50,
   "error": null
 }
 ```
