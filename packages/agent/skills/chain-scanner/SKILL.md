@@ -19,7 +19,7 @@ You read on-chain state via the NERVE MCP HTTP bridge and TX Builder.
 - `GET /jobs?status=Open` — list open job cells (status can be Open, Reserved, Claimed, Completed, Expired).
 - `GET /jobs?capability_hash=0x...` — filter by capability.
 - `GET /jobs/:tx_hash/:index` — get a specific job cell.
-- `GET /agents/:lock_args` — agent identity cell (v2 includes `daily_spent` and `last_reset_epoch`).
+- `GET /agents/:lock_args` — agent identity cell.
 - `GET /agents/:lock_args/reputation` — reputation cell.
 - `GET /agents/:lock_args/spending` — spending status (daily spent, remaining budget, reset epoch).
 - `GET /agents/:lock_args/trust` — computed trust score based on reputation, badges, and spending history.
@@ -40,13 +40,13 @@ For each request, call the relevant endpoint(s), parse the JSON, and return a st
 Aggregates a comprehensive view of an agent's on-chain state. Call all of the following in sequence:
 
 1. **Balance:** `GET http://localhost:8080/agent/balance` → extract `balance_ckb` and `lock_args`.
-2. **Identity:** `GET http://localhost:8081/agents/<lock_args>` → extract `spending_limit_ckb`, `daily_limit_ckb`, `daily_spent` (v2), `last_reset_epoch` (v2).
+2. **Identity:** `GET http://localhost:8081/agents/<lock_args>` → extract `spending_limit_ckb`, `daily_limit_ckb`, `daily_spent`, `last_reset_epoch`.
 3. **Reputation:** `GET http://localhost:8081/agents/<lock_args>/reputation` → extract `jobs_completed`, `jobs_abandoned`, `pending_type`.
 4. **Badges:** `GET http://localhost:8081/agents/<lock_args>/badges` → extract `count`.
 5. **Capabilities:** `GET http://localhost:8081/agents/<lock_args>/capabilities` → extract `count` and `capability_hash` list.
 6. **Active jobs:** `GET http://localhost:8081/jobs?status=Reserved` and `GET http://localhost:8081/jobs?status=Claimed` → count jobs where `worker_lock_args` matches this agent.
-7. **Delegation:** From the identity response (step 2), extract `parent_lock_args` and `revenue_share_bps` if present (v1 identity). Also `GET http://localhost:8080/agent/sub-agents` to count managed sub-agents.
-8. **Fiber node info:** `fiber-pay node info --json` → extract `version`, `node_id`, `peers_count`.
+7. **Delegation:** From the identity response (step 2), extract `parent_lock_args` and `revenue_share_bps`. Also `GET http://localhost:8080/agent/sub-agents` to count managed sub-agents.
+8. **Fiber node info:** `fiber-pay node info --json` → extract `node_id`, `peers_count`.
    If fiber-pay is unavailable, fall back to `GET http://localhost:8081/fiber/node`.
 9. **Fiber channels:** `fiber-pay channel list --json` → extract `count` and total `local_balance`.
    If fiber-pay is unavailable, fall back to `GET http://localhost:8081/fiber/channels`.
@@ -64,11 +64,10 @@ Agent Status: <lock_args>
   Daily spent:    <daily_spent> CKB (resets epoch <last_reset_epoch>)
 
   Reputation:
-    Version:   <version> (0=legacy, 1=proof-chain)
     Completed: <jobs_completed>
     Abandoned: <jobs_abandoned>
     Score:     <jobs_completed / (jobs_completed + jobs_abandoned) * 100>%
-    Proof root:     <proof_root or "N/A (V0)">
+    Proof root:     <proof_root or "none">
     Settlement hash: <pending_settlement_hash or "none">
 
   Badges earned:  <badge_count>
@@ -81,7 +80,7 @@ Agent Status: <lock_args>
     Sub-agents:   <sub_agent_count>
 
   Fiber Network:
-    Node:     <version> (<node_id short>)
+    Node:     <node_id short>
     Peers:    <peers_count>
     Channels: <channel_count> (<total_local_balance> CKB)
     Wallet:   <fiber_wallet_balance> CKB (L2)
