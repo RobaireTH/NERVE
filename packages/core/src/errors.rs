@@ -2,7 +2,6 @@ use axum::{http::StatusCode, response::IntoResponse, Json};
 use serde_json::json;
 use thiserror::Error;
 
-// Variants are the full public API surface; not all are constructed in Day 2.
 #[allow(dead_code)]
 #[derive(Debug, Error)]
 pub enum TxBuildError {

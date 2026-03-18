@@ -151,7 +151,6 @@ router.get('/match/:lock_args', async (req, res) => {
 			return agentCapabilities.has(j.capability_hash);
 		});
 
-		// ── Weighted scoring (spec §5.6) ────────────────────────────────────
 		// reward_value (0-40):  normalized reward relative to the best offer.
 		// ttl_urgency  (0-30):  prefer 50-200 blocks remaining, penalize too-soon or stale.
 		// poster_rep   (0-30):  poster's reputation ratio, weighted by volume.

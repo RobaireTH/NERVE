@@ -10,8 +10,6 @@ const FIBER_RPC_URL = process.env.FIBER_RPC_URL ?? 'http://localhost:8227';
 
 const client = new FiberRpcClient({ url: FIBER_RPC_URL });
 
-// ─── Re-exported utilities ──────────────────────────────────────────────────
-
 export const CKB_TO_SHANNONS = 100_000_000n;
 
 export function ckbToShannons(ckb: number): bigint {
@@ -21,8 +19,6 @@ export function ckbToShannons(ckb: number): bigint {
 export function shannonsToNumber(shannons: bigint | number | string): number {
 	return Number(BigInt(shannons)) / 1e8;
 }
-
-// ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface FiberNodeInfo {
 	version: string;
@@ -68,8 +64,6 @@ export interface FiberHoldInvoice {
 }
 
 export { FiberRpcError };
-
-// ─── API methods ────────────────────────────────────────────────────────────
 
 export async function nodeInfo(): Promise<FiberNodeInfo> {
 	try {
@@ -139,8 +133,6 @@ export async function newInvoice(
 	});
 }
 
-// ─── Hold invoice methods ───────────────────────────────────────────────────
-
 /// Creates a hold invoice with a pre-determined payment_hash.
 /// The invoice cannot be settled until the preimage is revealed via settleInvoice().
 export async function newHoldInvoice(
@@ -209,8 +201,6 @@ export async function sendPayment(opts: {
 
 	return client.call('send_payment', params);
 }
-
-// ─── fiber-pay enhanced helpers ─────────────────────────────────────────────
 
 /// Check if the Fiber node is reachable and ready to process payments.
 export async function isNodeReady(): Promise<boolean> {

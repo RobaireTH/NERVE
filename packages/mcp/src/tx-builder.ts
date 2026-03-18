@@ -7,8 +7,6 @@
 import blake2b from 'blake2b';
 import { getCellsByScript, getLiveCell, getTipBlockNumber, Script, LiveCell } from './ckb.js';
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-
 export const SECP256K1_CODE_HASH =
 	'0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8';
 export const SECP256K1_DEP_TX_HASH =
@@ -21,8 +19,6 @@ const REP_CELL_CAPACITY = 172n * 100_000_000n;
 const JOB_CELL_OVERHEAD = 184n * 100_000_000n;
 const ESTIMATED_FEE = 2_000_000n;
 
-// ─── Blake2b helper ──────────────────────────────────────────────────────────
-
 function ckbHash(data: Buffer): Buffer {
 	const personal = Buffer.alloc(16);
 	personal.write('ckb-default-hash');
@@ -30,8 +26,6 @@ function ckbHash(data: Buffer): Buffer {
 	h.update(data);
 	return Buffer.from(h.digest());
 }
-
-// ─── Hex helpers ─────────────────────────────────────────────────────────────
 
 function hexToBuffer(hex: string): Buffer {
 	return Buffer.from(hex.replace(/^0x/i, ''), 'hex');
@@ -60,8 +54,6 @@ function u64LE(n: bigint): Buffer {
 	buf.writeBigUInt64LE(n, 0);
 	return buf;
 }
-
-// ─── Molecule primitives ─────────────────────────────────────────────────────
 
 export function serializeTable(fields: Buffer[]): Buffer {
 	const headerSize = 4 + fields.length * 4;
@@ -131,8 +123,6 @@ export function serializeBytes(data: Buffer): Buffer {
 	data.copy(buf, 4);
 	return buf;
 }
-
-// ─── Sub-serializers ─────────────────────────────────────────────────────────
 
 interface TxScript {
 	code_hash: string;
@@ -240,8 +230,6 @@ export function computeRawTxHash(tx: UnsignedTx): string {
 	return bufferToHex(ckbHash(raw));
 }
 
-// ─── Signing support ─────────────────────────────────────────────────────────
-
 export function placeholderWitness(): Buffer {
 	// WitnessArgs Table: lock=Some([0;65]), input_type=None, output_type=None.
 	const buf = Buffer.alloc(85);
@@ -292,8 +280,6 @@ export function injectSignature(tx: UnsignedTx, signatureHex: string): UnsignedT
 	clone.witnesses[0] = bufferToHex(witness);
 	return clone;
 }
-
-// ─── Cell collection ─────────────────────────────────────────────────────────
 
 function secp256k1Lock(lockArgs: string): Script {
 	return {
@@ -346,8 +332,6 @@ export async function collectPlainCells(
 	return { inputs, capacity, firstTxHash, firstIndex };
 }
 
-// ─── Type ID calculation ─────────────────────────────────────────────────────
-
 export function calculateTypeId(
 	firstInputTxHash: string,
 	firstInputIndex: number,
@@ -370,8 +354,6 @@ export function calculateTypeId(
 	h.update(u64LE(outputIndex));
 	return bufferToHex(Buffer.from(h.digest()));
 }
-
-// ─── Cell data encoders ──────────────────────────────────────────────────────
 
 export function encodeIdentityData(
 	pubkey: Buffer,
@@ -426,8 +408,6 @@ export function encodeRepData(
 	return buf;
 }
 
-// ─── Shared helpers ──────────────────────────────────────────────────────────
-
 function placeholderWitnesses(count: number): string[] {
 	const ph = bufferToHex(placeholderWitness());
 	return Array.from({ length: count }, (_, i) => (i === 0 ? ph : '0x'));
@@ -457,8 +437,6 @@ function buildTemplate(tx: UnsignedTx): TemplateResult {
 	return { tx, tx_hash: txHash, signing_message: signingMessage };
 }
 
-// ─── Fetch helpers ───────────────────────────────────────────────────────────
-
 async function fetchJobCell(
 	jobTxHash: string,
 	jobIndex: number,
@@ -472,8 +450,6 @@ async function fetchJobCell(
 	if (data.length < 90) throw new Error('job cell data too short');
 	return { capacity, data };
 }
-
-// ─── Intent builders ─────────────────────────────────────────────────────────
 
 export async function buildSpawnAgent(
 	lockArgs: string,
