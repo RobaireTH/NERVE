@@ -4,7 +4,6 @@ pub mod identity;
 pub mod intents;
 pub mod job;
 pub mod reputation;
-pub mod swap;
 pub(crate) mod molecule;
 pub(crate) mod signing;
 mod transfer;

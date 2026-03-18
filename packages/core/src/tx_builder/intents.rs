@@ -15,7 +15,6 @@ use super::{
 		build_create_reputation, build_create_reputation_v1, build_finalize_reputation,
 		build_migrate_reputation_v1, build_propose_reputation, compute_settlement_hash,
 	},
-	swap::{build_create_pool, build_swap},
 	transfer::build_transfer,
 };
 
@@ -63,19 +62,6 @@ pub enum BuildRequest {
 	CancelJob {
 		job_tx_hash: String,
 		job_index: u32,
-	},
-	/// Execute a CKB→TOKEN swap against the mock AMM pool.
-	Swap {
-		pool_tx_hash: String,
-		pool_index: u32,
-		amount_ckb: f64,
-		/// Slippage tolerance in basis points (100 = 1%).
-		slippage_bps: Option<u32>,
-	},
-	/// Create a new AMM pool with seed liquidity.
-	CreatePool {
-		seed_ckb: f64,
-		seed_token_amount: u64,
 	},
 	/// Mint a capability NFT with a signed attestation proof.
 	MintCapability {
@@ -279,25 +265,6 @@ pub async fn build_and_sign(
 
 		BuildRequest::CancelJob { job_tx_hash, job_index } => {
 			let (tx, tx_hash) = build_cancel_job(state, &job_tx_hash, job_index).await?;
-			Ok(BuildResult { tx_hash, tx, metadata: None })
-		}
-
-		BuildRequest::Swap { pool_tx_hash, pool_index, amount_ckb, slippage_bps } => {
-			let (tx, tx_hash) = build_swap(
-				state,
-				&pool_tx_hash,
-				pool_index,
-				ckb_to_shannons(amount_ckb),
-				slippage_bps.unwrap_or(100),
-			)
-			.await?;
-			Ok(BuildResult { tx_hash, tx, metadata: None })
-		}
-
-		BuildRequest::CreatePool { seed_ckb, seed_token_amount } => {
-			let (tx, tx_hash) =
-				build_create_pool(state, ckb_to_shannons(seed_ckb), seed_token_amount as u128)
-					.await?;
 			Ok(BuildResult { tx_hash, tx, metadata: None })
 		}
 
