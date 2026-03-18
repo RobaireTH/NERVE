@@ -18,15 +18,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-NON_INTERACTIVE="${1:-}"
-CLEAN_MODE="${2:-}"
-if [[ "$NON_INTERACTIVE" == "--clean" ]]; then
-	CLEAN_MODE="--clean"
-	NON_INTERACTIVE=""
-fi
-if [[ "$CLEAN_MODE" != "--clean" && "${2:-}" == "--clean" ]]; then
-	CLEAN_MODE="--clean"
-fi
+NON_INTERACTIVE=""
+CLEAN_MODE=""
+FULL_MODE=""
+for arg in "$@"; do
+	case "$arg" in
+		--non-interactive) NON_INTERACTIVE="--non-interactive" ;;
+		--clean)           CLEAN_MODE="--clean" ;;
+		--full)            FULL_MODE="--full" ;;
+	esac
+done
 
 POSTER_PORT=8080
 WORKER_PORT=8090
@@ -222,6 +223,131 @@ else
 	echo "   Deploy capability_nft contract to enable."
 fi
 
+# ── Full-mode flows (4-7) ────────────────────────────────────────────────────
+
+REP_TX="" BADGE_TX="" FIBER_TX="" DISCOVERY_OK=""
+
+if [[ "$FULL_MODE" == "--full" ]]; then
+
+	# ── Flow 4: Reputation ────────────────────────────────────────────────────
+
+	REP_CREATE_TX=""
+	if [[ -n "${REPUTATION_TYPE_CODE_HASH:-}" ]]; then
+		step "FLOW 4: Reputation"
+		pending "Worker: creating reputation cell"
+		REP_CREATE_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
+			-H "Content-Type: application/json" \
+			-d '{"intent":"create_reputation"}' 2>&1) || true
+		REP_CREATE_TX=$(echo "$REP_CREATE_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
+		if [[ -n "$REP_CREATE_TX" ]]; then
+			ok "Reputation cell: $REP_CREATE_TX"
+			pending "Waiting 12s for indexing..."
+			sleep 12
+
+			pending "Proposing reputation update (type=1, 10-block window)"
+			PROPOSE_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
+				-H "Content-Type: application/json" \
+				-d "{\"intent\":\"propose_reputation\",\"rep_tx_hash\":\"$REP_CREATE_TX\",\"rep_index\":0,\"propose_type\":1,\"dispute_window_blocks\":10}" 2>&1) || true
+			PROPOSE_TX=$(echo "$PROPOSE_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
+			if [[ -n "$PROPOSE_TX" ]]; then
+				ok "Proposal tx: $PROPOSE_TX"
+				pending "Waiting 30s for dispute window to pass..."
+				sleep 30
+
+				pending "Finalizing reputation"
+				FINALIZE_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
+					-H "Content-Type: application/json" \
+					-d "{\"intent\":\"finalize_reputation\",\"rep_tx_hash\":\"$PROPOSE_TX\",\"rep_index\":0}" 2>&1) || true
+				REP_TX=$(echo "$FINALIZE_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
+				if [[ -n "$REP_TX" ]]; then
+					ok "Finalized: $REP_TX"
+				else
+					echo "   Finalize skipped or failed: $FINALIZE_RESP"
+				fi
+			else
+				echo "   Propose skipped or failed: $PROPOSE_RESP"
+			fi
+		else
+			echo "   Reputation create skipped or failed: $REP_CREATE_RESP"
+		fi
+		ok "Flow 4 complete: Reputation"
+	else
+		echo
+		echo "── FLOW 4: Reputation (skipped) ──"
+		echo "   Deploy reputation contract to enable."
+	fi
+
+	# ── Flow 5: Badge Minting ────────────────────────────────────────────────
+
+	if [[ -n "${DOB_BADGE_CODE_HASH:-}" && -n "$COMPLETE_TX" ]]; then
+		step "FLOW 5: Badge Minting"
+		pending "Worker: minting PoP badge for completed job"
+		BADGE_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
+			-H "Content-Type: application/json" \
+			-d "{\"intent\":\"mint_badge\",\"job_tx_hash\":\"$COMPLETE_TX\",\"job_index\":0}" 2>&1) || true
+		BADGE_TX=$(echo "$BADGE_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4 || true)
+		if [[ -n "$BADGE_TX" ]]; then
+			ok "Badge tx: $BADGE_TX"
+		else
+			echo "   Badge mint skipped or failed: $BADGE_RESP"
+		fi
+		ok "Flow 5 complete: Badge Minting"
+	else
+		echo
+		echo "── FLOW 5: Badge Minting (skipped) ──"
+		echo "   Set DOB_BADGE_CODE_HASH to enable."
+	fi
+
+	# ── Flow 6: Fiber Payment ────────────────────────────────────────────────
+
+	FIBER_RPC="${FIBER_RPC_URL:-http://127.0.0.1:8227}"
+	if curl -sf --max-time 3 -X POST "$FIBER_RPC" \
+		-H "Content-Type: application/json" \
+		-d '{"jsonrpc":"2.0","id":1,"method":"node_info","params":[]}' \
+		| grep -q '"result"' 2>/dev/null; then
+		step "FLOW 6: Fiber Payment"
+		pending "Creating hold invoice for 1 CKB demo amount"
+		FIBER_RESP=$(curl -sf -X POST "$MCP_URL/fiber/invoice" \
+			-H "Content-Type: application/json" \
+			-d '{"amount_ckb":1,"description":"demo invoice","expiry_seconds":600}' 2>&1) || true
+		FIBER_TX=$(echo "$FIBER_RESP" | grep -o '"payment_hash":"[^"]*"' | cut -d'"' -f4 || true)
+		if [[ -n "$FIBER_TX" ]]; then
+			ok "Invoice payment_hash: $FIBER_TX"
+		else
+			echo "   Invoice creation skipped or failed: $FIBER_RESP"
+		fi
+		ok "Flow 6 complete: Fiber Payment"
+	else
+		echo
+		echo "── FLOW 6: Fiber Payment (skipped) ──"
+		echo "   Fiber node not available."
+	fi
+
+	# ── Flow 7: Agent Discovery ──────────────────────────────────────────────
+
+	step "FLOW 7: Agent Discovery"
+	pending "Calling /discover/workers"
+	WORKERS_RESP=$(curl -sf --max-time 10 "$MCP_URL/discover/workers" 2>&1) || true
+	WORKER_COUNT=$(echo "$WORKERS_RESP" | grep -o '"count":[0-9]*' | cut -d: -f2 || true)
+	if [[ -n "$WORKER_COUNT" ]]; then
+		ok "Found $WORKER_COUNT registered worker(s)"
+	else
+		echo "   Discovery call failed or MCP bridge unavailable"
+	fi
+
+	pending "Calling /jobs/match/$WORKER_LOCK_ARGS"
+	MATCH_RESP=$(curl -sf --max-time 10 "$MCP_URL/jobs/match/$WORKER_LOCK_ARGS" 2>&1) || true
+	MATCH_COUNT=$(echo "$MATCH_RESP" | grep -o '"count":[0-9]*' | cut -d: -f2 || true)
+	if [[ -n "$MATCH_COUNT" ]]; then
+		ok "Found $MATCH_COUNT matching job(s) for worker"
+		DISCOVERY_OK="true"
+	else
+		echo "   Job match call failed or MCP bridge unavailable"
+	fi
+	ok "Flow 7 complete: Agent Discovery"
+
+fi
+
 # ── Summary ────────────────────────────────────────────────────────────────────
 
 echo
@@ -249,6 +375,38 @@ if [[ -n "$CAP_TX" ]]; then
 	echo "    proof:    signed attestation"
 else
 	echo "    (skipped — deploy capability_nft)"
+fi
+
+if [[ "$FULL_MODE" == "--full" ]]; then
+	echo
+	echo "  FLOW 4: Reputation"
+	if [[ -n "$REP_TX" ]]; then
+		echo "    finalized: $REP_TX"
+	else
+		echo "    (skipped or failed)"
+	fi
+	echo
+	echo "  FLOW 5: Badge Minting"
+	if [[ -n "$BADGE_TX" ]]; then
+		echo "    badge:    $BADGE_TX"
+	else
+		echo "    (skipped — set DOB_BADGE_CODE_HASH)"
+	fi
+	echo
+	echo "  FLOW 6: Fiber Payment"
+	if [[ -n "$FIBER_TX" ]]; then
+		echo "    invoice:  $FIBER_TX"
+	else
+		echo "    (skipped — Fiber unavailable)"
+	fi
+	echo
+	echo "  FLOW 7: Agent Discovery"
+	if [[ -n "$DISCOVERY_OK" ]]; then
+		echo "    workers:  $WORKER_COUNT found"
+		echo "    matched:  $MATCH_COUNT job(s)"
+	else
+		echo "    (skipped — MCP bridge unavailable)"
+	fi
 fi
 echo
 echo "  Explorer: https://testnet.explorer.nervos.org/aggron"
