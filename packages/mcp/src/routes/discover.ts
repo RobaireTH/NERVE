@@ -21,6 +21,11 @@ router.get('/', (_req, res) => {
 		endpoints: {
 			discovery: {
 				manifest: { method: 'GET', path: '/', description: 'This manifest.' },
+				join: {
+					method: 'GET',
+					path: '/join',
+					description: 'Onboarding config for external agents joining the marketplace (contract hashes, RPC URLs, instructions).',
+				},
 				workers: {
 					method: 'GET',
 					path: '/discover/workers',
@@ -162,10 +167,12 @@ router.get('/', (_req, res) => {
 		],
 		getting_started: [
 			'1. GET / to read this manifest.',
-			'2. GET /discover/workers to find available agents.',
-			'3. GET /jobs?status=Open to browse the marketplace.',
-			'4. POST /jobs to create a job (or use the Telegram bot).',
-			`5. Full docs: ${base}/docs (if served) or see docs/index.html in the repo.`,
+			'2. GET /join to get onboarding config (contract hashes, RPC URLs).',
+			'3. Run: nerve join --bridge ' + base + ' to configure your agent.',
+			'4. GET /discover/workers to find available agents.',
+			'5. GET /jobs?status=Open to browse the marketplace.',
+			'6. POST /jobs to create a job (or use the Telegram bot).',
+			`7. Full docs: ${base}/docs (if served) or see docs/index.html in the repo.`,
 		],
 	});
 });
@@ -300,6 +307,60 @@ router.get('/discover/workers', async (_req, res) => {
 		console.error('discover route error:', e);
 		res.status(502).json({ error: 'upstream request failed' });
 	}
+});
+
+// GET /join — Onboarding config for external agents joining the marketplace.
+// Returns everything a new agent needs: contract code hashes, RPC URLs, network
+// info, and step-by-step instructions. This is the open marketplace entry point.
+router.get('/join', (_req, res) => {
+	const base = `http://localhost:${MCP_PORT}`;
+	const ckbRpc = process.env.CKB_RPC_URL ?? 'https://testnet.ckb.dev/rpc';
+	const ckbIndexer = process.env.CKB_INDEXER_URL ?? 'https://testnet.ckb.dev/indexer';
+
+	// Collect all deployed contract code hashes.
+	const contracts: Record<string, string | undefined> = {
+		AGENT_IDENTITY_TYPE_CODE_HASH: AGENT_TYPE_CODE_HASH || undefined,
+		REPUTATION_TYPE_CODE_HASH: REP_TYPE_CODE_HASH || undefined,
+		CAP_NFT_TYPE_CODE_HASH: CAP_NFT_TYPE_CODE_HASH || undefined,
+		JOB_CELL_TYPE_CODE_HASH: process.env.JOB_CELL_TYPE_CODE_HASH || undefined,
+		DOB_BADGE_CODE_HASH: process.env.DOB_BADGE_CODE_HASH || undefined,
+		AMM_POOL_TYPE_CODE_HASH: process.env.AMM_POOL_TYPE_CODE_HASH || undefined,
+	};
+
+	// Strip undefined entries.
+	const deployed = Object.fromEntries(
+		Object.entries(contracts).filter(([, v]) => v !== undefined),
+	);
+
+	const ready = !!(AGENT_TYPE_CODE_HASH && REP_TYPE_CODE_HASH);
+
+	res.json({
+		marketplace: 'NERVE',
+		version: '0.1.0',
+		network: 'CKB Testnet (Pudge)',
+		ready,
+		rpc: {
+			ckb: ckbRpc,
+			indexer: ckbIndexer,
+		},
+		bridge_url: base,
+		contracts: deployed,
+		onboarding: [
+			'1. Fund a CKB testnet wallet (https://faucet.nervos.org).',
+			'2. Run: nerve join --bridge ' + base,
+			'3. This writes .env.deployed with shared contract hashes.',
+			'4. Start nerve-core with your private key: AGENT_PRIVATE_KEY=0x... ./nerve-core',
+			'5. Spawn your identity: nerve post-identity --limit 20 --daily 200',
+			'6. Create reputation cell: nerve create-reputation',
+			'7. You are now discoverable at GET /discover/workers and can claim jobs.',
+		],
+		discovery_endpoints: {
+			workers: '/discover/workers',
+			jobs: '/jobs?status=Open',
+			match: '/jobs/match/:your_lock_args',
+			stream: '/jobs/stream',
+		},
+	});
 });
 
 export default router;
