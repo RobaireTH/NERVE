@@ -79,7 +79,7 @@ fn encode_rep_data(
 	agent_lock_args: &[u8; 20],
 ) -> Vec<u8> {
 	let mut data = Vec::with_capacity(REP_DATA_SIZE);
-	data.push(0u8); // version
+	data.push(0u8);
 	data.push(pending_type);
 	data.extend_from_slice(&jobs_completed.to_le_bytes());
 	data.extend_from_slice(&jobs_abandoned.to_le_bytes());
@@ -112,7 +112,7 @@ fn encode_rep_data_v1(
 	settlement_hash: &[u8; 32],
 ) -> Vec<u8> {
 	let mut data = Vec::with_capacity(REP_DATA_V1_SIZE);
-	data.push(1u8); // version = 1
+	data.push(1u8);
 	data.push(pending_type);
 	data.extend_from_slice(&jobs_completed.to_le_bytes());
 	data.extend_from_slice(&jobs_abandoned.to_le_bytes());
@@ -200,7 +200,6 @@ async fn fetch_rep_cell(
 	let data = hex::decode(data_hex.trim_start_matches("0x"))
 		.map_err(|e| TxBuildError::Rpc(format!("bad rep data: {e}")))?;
 
-	// Extract the type script args (the Type ID) from the existing cell.
 	let type_args = cell.output.type_script
 		.as_ref()
 		.map(|ts| ts.args.clone())
@@ -227,7 +226,6 @@ pub async fn build_create_reputation(
 	let mut first_input_tx_hash: Option<String> = None;
 	let mut first_input_index: u32 = 0;
 	for cell in &cells.objects {
-		// Skip typed cells to avoid consuming protocol cells (job, identity, etc.).
 		if cell.output.type_script.is_some() {
 			continue;
 		}
@@ -256,7 +254,6 @@ pub async fn build_create_reputation(
 	let first_tx_hash = first_input_tx_hash
 		.ok_or_else(|| TxBuildError::Rpc("no input cells available for type_id".into()))?;
 
-	// Calculate Type ID: the reputation cell is at output index 0.
 	let type_id_args = calculate_type_id(&first_tx_hash, first_input_index, 0, 0)?;
 
 	let change_capacity = input_capacity - REP_CELL_CAPACITY - ESTIMATED_FEE;
@@ -529,9 +526,7 @@ pub async fn build_finalize_reputation(
 	let (fee_inputs, fee_capacity) = gather_fee_inputs(state, ESTIMATED_FEE).await?;
 	let change_capacity = fee_capacity - ESTIMATED_FEE;
 
-	// Set since on the reputation input to the pending_expires_at block number.
-	// CKB consensus enforces that the transaction cannot be included until this block.
-	// The type script validates that since >= pending_expires_at.
+	// CKB `since` prevents inclusion before the pending period expires.
 	let since_value = format!("{:#x}", pending_expires_at);
 
 	let mut all_inputs = vec![json!({
@@ -644,9 +639,6 @@ pub async fn build_migrate_reputation_v1(
 	Ok((tx, tx_hash_str))
 }
 
-/// Gathers enough of the agent's secp256k1 cells to cover `needed` shannons.
-///
-/// Only uses plain cells (no type script) to avoid UTXO conflicts with typed cell inputs.
 async fn gather_fee_inputs(
 	state: &AppState,
 	needed: u64,
@@ -657,8 +649,6 @@ async fn gather_fee_inputs(
 	let mut inputs = Vec::new();
 	let mut capacity: u64 = 0;
 	for cell in &cells.objects {
-		// Skip cells with a type script — they are protocol cells (job, reputation, etc.)
-		// and consuming them here would cause a UTXO conflict.
 		if cell.output.type_script.is_some() {
 			continue;
 		}

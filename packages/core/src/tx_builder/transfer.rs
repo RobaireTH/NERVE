@@ -39,14 +39,12 @@ pub async fn build_transfer(
 		args: state.lock_args.clone(),
 	};
 
-	// Gather cells until we have enough capacity.
 	let cells = state.ckb.get_cells_by_lock(&our_lock, 200).await?;
 	let needed = amount_shannons + ESTIMATED_FEE + MIN_CELL_CAPACITY; // output + fee + change cell
 
 	let mut inputs = Vec::new();
 	let mut input_capacity: u64 = 0;
 	for cell in &cells.objects {
-		// Skip typed cells to avoid consuming protocol cells (job, reputation, etc.).
 		if cell.output.type_script.is_some() {
 			continue;
 		}
@@ -120,7 +118,6 @@ pub async fn build_transfer(
 
 	let tx_hash = compute_raw_tx_hash(&tx)?;
 
-	// Sign and inject the witness.
 	let signature = sign_tx(&tx_hash, &state.private_key, inputs.len())?;
 	inject_witness(&mut tx, &signature);
 

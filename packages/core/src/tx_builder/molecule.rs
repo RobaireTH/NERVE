@@ -23,9 +23,7 @@ pub fn compute_raw_tx_hash(tx: &Value) -> Result<String, TxBuildError> {
 	Ok(format!("0x{}", hex::encode(hash)))
 }
 
-// --- Molecule primitives ---
-
-/// Molecule Table: total_size(4 LE) + field_offsets(N * 4 LE) + field data.
+/// Table: total_size(4 LE) + field_offsets(N * 4 LE) + field data.
 fn serialize_table(fields: &[Vec<u8>]) -> Vec<u8> {
 	let header_size = 4 + fields.len() * 4;
 	let data_size: usize = fields.iter().map(|f| f.len()).sum();
@@ -47,7 +45,7 @@ fn serialize_table(fields: &[Vec<u8>]) -> Vec<u8> {
 	buf
 }
 
-/// Molecule FixVec: item_count(4 LE) + items (each fixed-size).
+/// FixVec: item_count(4 LE) + items (each fixed-size).
 fn serialize_fixvec(items: &[Vec<u8>]) -> Vec<u8> {
 	let mut buf = Vec::new();
 	buf.extend_from_slice(&(items.len() as u32).to_le_bytes());
@@ -57,7 +55,7 @@ fn serialize_fixvec(items: &[Vec<u8>]) -> Vec<u8> {
 	buf
 }
 
-/// Molecule DynVec: total_size(4 LE) + offsets(N * 4 LE) + items (variable-size).
+/// DynVec: total_size(4 LE) + offsets(N * 4 LE) + items (variable-size).
 fn serialize_dynvec(items: &[Vec<u8>]) -> Vec<u8> {
 	if items.is_empty() {
 		return 4u32.to_le_bytes().to_vec();
@@ -83,7 +81,7 @@ fn serialize_dynvec(items: &[Vec<u8>]) -> Vec<u8> {
 	buf
 }
 
-/// Molecule Bytes (FixVec<byte>): length(4 LE) + raw bytes.
+/// Bytes (FixVec<byte>): length(4 LE) + raw bytes.
 fn serialize_bytes(data: &[u8]) -> Vec<u8> {
 	let mut buf = Vec::with_capacity(4 + data.len());
 	buf.extend_from_slice(&(data.len() as u32).to_le_bytes());
@@ -91,9 +89,7 @@ fn serialize_bytes(data: &[u8]) -> Vec<u8> {
 	buf
 }
 
-// --- RawTransaction field serializers ---
-
-/// Serializes the RawTransaction molecule Table (6 fields, excludes witnesses).
+/// RawTransaction = Table { version, cell_deps, header_deps, inputs, outputs, outputs_data }.
 fn serialize_raw_transaction(tx: &Value) -> Result<Vec<u8>, TxBuildError> {
 	let version = serialize_version(tx)?;
 	let cell_deps = serialize_cell_dep_vec(tx)?;
@@ -269,8 +265,6 @@ fn serialize_bytes_vec(tx: &Value) -> Result<Vec<u8>, TxBuildError> {
 	}
 	Ok(serialize_dynvec(&items))
 }
-
-// --- Hex helpers ---
 
 fn hex_to_bytes32(hex: &str) -> Result<[u8; 32], TxBuildError> {
 	let bytes = hex::decode(hex.trim_start_matches("0x"))

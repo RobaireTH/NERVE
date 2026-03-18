@@ -93,8 +93,8 @@ pub fn encode_badge_data(content_json: &str) -> [u8; 34] {
 	hasher.finalize(&mut hash);
 
 	let mut data = [0u8; 34];
-	data[0] = 0x01; // protocol version
-	data[1] = 0x01; // content type
+	data[0] = 0x01;
+	data[1] = 0x01;
 	data[2..34].copy_from_slice(&hash);
 	data
 }
@@ -125,11 +125,9 @@ pub async fn build_mint_badge(
 
 	let worker_args = super::job::parse_lock_args_20(worker_lock_args)?;
 
-	// Compute badge args fields.
 	let event_id_hash = compute_event_id_hash(&job_hash, job_index as u64);
 	let recipient_hash = compute_recipient_hash(&worker_args);
 
-	// Build content JSON for the badge data hash.
 	let content_json = format!(
 		r#"{{"protocol":"nerve","version":1,"job_tx_hash":"{}","job_index":{},"worker_lock_args":"{}","result_hash":"{}","completed_at_tx":"{}"}}"#,
 		job_tx_hash,
@@ -140,14 +138,12 @@ pub async fn build_mint_badge(
 	);
 	let badge_data = encode_badge_data(&content_json);
 
-	// Worker's lock for the badge output.
 	let worker_lock = Script {
 		code_hash: SECP256K1_CODE_HASH.into(),
 		hash_type: SECP256K1_HASH_TYPE.into(),
 		args: worker_lock_args.into(),
 	};
 
-	// Gather fee inputs.
 	let needed = BADGE_CELL_CAPACITY + ESTIMATED_FEE + MIN_CELL_CAPACITY;
 	let agent_lock = our_lock(state);
 	let cells = state.ckb.get_cells_by_lock(&agent_lock, 200).await?;
@@ -185,7 +181,6 @@ pub async fn build_mint_badge(
 	let first_tx_hash = first_input_tx_hash
 		.ok_or_else(|| TxBuildError::Rpc("no input cells available for type_id".into()))?;
 
-	// Calculate Type ID from first input outpoint, badge at output index 0.
 	let type_id_full = calculate_type_id(&first_tx_hash, first_input_index, 0, 0)?;
 	let type_id_bytes = hex::decode(type_id_full.trim_start_matches("0x"))
 		.map_err(|e| TxBuildError::Rpc(format!("bad type_id: {e}")))?;
