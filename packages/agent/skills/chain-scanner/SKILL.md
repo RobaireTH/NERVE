@@ -19,8 +19,10 @@ You read on-chain state via the NERVE MCP HTTP bridge and TX Builder.
 - `GET /jobs?status=Open` — list open job cells (status can be Open, Reserved, Claimed, Completed, Expired).
 - `GET /jobs?capability_hash=0x...` — filter by capability.
 - `GET /jobs/:tx_hash/:index` — get a specific job cell.
-- `GET /agents/:lock_args` — agent identity cell.
+- `GET /agents/:lock_args` — agent identity cell (v2 includes `daily_spent` and `last_reset_epoch`).
 - `GET /agents/:lock_args/reputation` — reputation cell.
+- `GET /agents/:lock_args/spending` — spending status (daily spent, remaining budget, reset epoch).
+- `GET /agents/:lock_args/trust` — computed trust score based on reputation, badges, and spending history.
 
 **TX Builder** — `http://localhost:8080`
 
@@ -38,7 +40,7 @@ For each request, call the relevant endpoint(s), parse the JSON, and return a st
 Aggregates a comprehensive view of an agent's on-chain state. Call all of the following in sequence:
 
 1. **Balance:** `GET http://localhost:8080/agent/balance` → extract `balance_ckb` and `lock_args`.
-2. **Identity:** `GET http://localhost:8081/agents/<lock_args>` → extract `spending_limit_ckb`, `daily_limit_ckb`.
+2. **Identity:** `GET http://localhost:8081/agents/<lock_args>` → extract `spending_limit_ckb`, `daily_limit_ckb`, `daily_spent` (v2), `last_reset_epoch` (v2).
 3. **Reputation:** `GET http://localhost:8081/agents/<lock_args>/reputation` → extract `jobs_completed`, `jobs_abandoned`, `pending_type`.
 4. **Badges:** `GET http://localhost:8081/agents/<lock_args>/badges` → extract `count`.
 5. **Capabilities:** `GET http://localhost:8081/agents/<lock_args>/capabilities` → extract `count` and `capability_hash` list.
@@ -59,6 +61,7 @@ Agent Status: <lock_args>
   Balance (L1):   <balance_ckb> CKB
   Spending limit: <spending_limit_ckb> CKB/tx
   Daily limit:    <daily_limit_ckb> CKB/day
+  Daily spent:    <daily_spent> CKB (resets epoch <last_reset_epoch>)
 
   Reputation:
     Version:   <version> (0=legacy, 1=proof-chain)
@@ -114,13 +117,31 @@ GET http://localhost:8081/agents/<lock_args>/capabilities
 
 Return the list of `capability_hash` values and their outpoints.
 
+### get_spending_status
+
+Fetch the agent's current spending status:
+```
+GET http://localhost:8081/agents/<lock_args>/spending
+```
+
+Returns `daily_spent`, `daily_limit_ckb`, `remaining_budget_ckb`, `last_reset_epoch`, and `current_epoch`. Useful for checking whether the agent can afford a job before attempting to reserve it.
+
+### get_trust_score
+
+Fetch the agent's computed trust score:
+```
+GET http://localhost:8081/agents/<lock_args>/trust
+```
+
+Returns a composite trust score derived from reputation history, badge count, spending patterns, and on-chain activity. The score is a value between 0 and 100.
+
 ## Result Format
 
 Always return JSON:
 ```json
 {
   "worker": "chain-scanner",
-  "action": "<scan_jobs | get_balance | get_tx_status | get_agent | get_reputation | get_full_status | get_capabilities | list_sub_agents | delegation_status>",
+  "action": "<scan_jobs | get_balance | get_tx_status | get_agent | get_reputation | get_full_status | get_capabilities | list_sub_agents | delegation_status | get_spending_status | get_trust_score>",
   "status": "success | error",
   "data": { ... },
   "error": null

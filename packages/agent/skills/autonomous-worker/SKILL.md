@@ -103,14 +103,20 @@ reserved  → claimed  → completed
    Response: `{ "lock_args": "0x...", "balance_ckb": 150.5, ... }`
 6. If `nerve:auto:identity` was set, override `lock_args` with that value. Otherwise save
    `lock_args` from the balance response — you will need it for reserve and complete calls.
-7. If `balance_ckb < min_balance_ckb`, skip to Step 5 (log only). Do NOT claim new jobs.
-8. Write `nerve:auto:last_run` with the current ISO 8601 timestamp.
-9. Check Fiber node readiness:
+7. Check daily spending budget:
+   ```
+   GET http://localhost:8081/agents/<lock_args>/spending
+   ```
+   Response: `{ "daily_spent": 30.0, "daily_limit_ckb": 100.0, "remaining_budget_ckb": 70.0, ... }`
+   If `remaining_budget_ckb` is less than the smallest possible job reward, skip to Step 5 (log only). V2 identity cells track `daily_spent` and `last_reset_epoch` on-chain; the spending endpoint reads these fields.
+8. If `balance_ckb < min_balance_ckb`, skip to Step 5 (log only). Do NOT claim new jobs.
+9. Write `nerve:auto:last_run` with the current ISO 8601 timestamp.
+10. Check Fiber node readiness:
    ```
    fiber-pay node ready --json
    ```
    If not ready, log a warning but continue — Fiber is optional for non-payment jobs.
-10. If Fiber is ready, check channel liquidity:
+11. If Fiber is ready, check channel liquidity:
    ```
    fiber-pay channel list --json
    ```
@@ -189,7 +195,8 @@ Always write the updated inflight list to Memory after each error.
 
 Skip this step if:
 - Active in-flight count >= `max_concurrent_jobs`.
-- Balance was below `min_balance_ckb` in Step 1.
+- Balance was below `min_balance_ckb` in preflight step 8.
+- Daily spending budget was exhausted in preflight step 7.
 
 ### 3a. Fetch open jobs
 
