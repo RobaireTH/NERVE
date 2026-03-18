@@ -431,4 +431,161 @@ router.get('/:lock_args/sub-agents', async (req, res) => {
 	}
 });
 
+// GET /agents/:lock_args/trust — composite trust score synthesized from on-chain state.
+// Parallel-fetches identity, reputation, capabilities, badges, and balance, then
+// computes a normalized 0-100 score with a full breakdown.
+router.get('/:lock_args/trust', async (req, res) => {
+	const { lock_args } = req.params;
+
+	try {
+		// Build all script queries we might need.
+		const fetches: Record<string, Promise<unknown>> = {};
+
+		if (AGENT_TYPE_CODE_HASH) {
+			const script: Script = { code_hash: AGENT_TYPE_CODE_HASH, hash_type: 'data1', args: '0x' };
+			fetches.identity = getCellsByScript(script, 'type', 200);
+		}
+		if (REP_TYPE_CODE_HASH) {
+			const script: Script = { code_hash: REP_TYPE_CODE_HASH, hash_type: 'data1', args: '0x' };
+			fetches.reputation = getCellsByScript(script, 'type', 200);
+		}
+		if (CAP_NFT_TYPE_CODE_HASH) {
+			const script: Script = { code_hash: CAP_NFT_TYPE_CODE_HASH, hash_type: 'data1', args: '0x' };
+			fetches.capabilities = getCellsByScript(script, 'type', 200);
+		}
+		if (DOB_BADGE_CODE_HASH) {
+			const script: Script = { code_hash: DOB_BADGE_CODE_HASH, hash_type: 'type', args: '0x' };
+			fetches.badges = getCellsByScript(script, 'type', 200);
+		}
+
+		const results = await Promise.all(
+			Object.entries(fetches).map(async ([key, promise]) => {
+				try { return [key, await promise] as const; }
+				catch { return [key, null] as const; }
+			}),
+		);
+		const data: Record<string, { objects: Array<{ output: { lock: { args: string }; type?: { args: string } | null; capacity: string }; output_data: string; out_point: { tx_hash: string; index: string } }> } | null> = {};
+		for (const [key, val] of results) data[key] = val as typeof data[string];
+
+		// 1. Identity check (required).
+		let identity: AgentInfo | null = null;
+		if (data.identity) {
+			const match = data.identity.objects.find(
+				(c) => c.output.lock.args.toLowerCase() === lock_args.toLowerCase(),
+			);
+			if (match) identity = parseAgentCell(match.output_data, lock_args);
+		}
+		if (!identity) {
+			res.status(404).json({ error: 'no agent identity cell found for this lock_args' });
+			return;
+		}
+
+		// 2. Reputation.
+		let jobsCompleted = 0;
+		let jobsAbandoned = 0;
+		let hasProofChain = false;
+		if (data.reputation) {
+			const match = data.reputation.objects.find((c) => {
+				const rep = parseReputationCell(c.output_data);
+				return rep && rep.agent_lock_args.toLowerCase() === lock_args.toLowerCase();
+			});
+			if (match) {
+				const rep = parseReputationCell(match.output_data);
+				if (rep) {
+					jobsCompleted = rep.jobs_completed;
+					jobsAbandoned = rep.jobs_abandoned;
+					hasProofChain = rep.version >= 1 && !!rep.proof_root &&
+						rep.proof_root !== '0x' + '00'.repeat(32);
+				}
+			}
+		}
+
+		// 3. Capabilities.
+		let capCount = 0;
+		let chainBackedCaps = 0;
+		if (data.capabilities) {
+			for (const c of data.capabilities.objects) {
+				const raw = Buffer.from((c.output_data ?? '0x').replace('0x', ''), 'hex');
+				if (raw.length < 54) continue;
+				const agentArgs = '0x' + raw.subarray(2, 22).toString('hex');
+				if (agentArgs.toLowerCase() !== lock_args.toLowerCase()) continue;
+				capCount++;
+				if (raw[1] === 1) chainBackedCaps++;
+			}
+		}
+
+		// 4. Badges (proof of past work).
+		let badgeCount = 0;
+		if (data.badges) {
+			badgeCount = data.badges.objects.filter(
+				(c) => c.output.lock.args.toLowerCase() === lock_args.toLowerCase(),
+			).length;
+		}
+
+		// ── Scoring ──────────────────────────────────────────────────────────
+		// Reputation (0-40): ratio weighted by volume, bonus for proof chain.
+		const totalJobs = jobsCompleted + jobsAbandoned;
+		const ratio = totalJobs > 0 ? jobsCompleted / totalJobs : 0;
+		const volumeMultiplier = Math.min(totalJobs / 10, 1); // full credit at 10+ jobs
+		let reputationScore = Math.round(ratio * 30 * volumeMultiplier);
+		if (hasProofChain) reputationScore += 10; // bonus for V1 verifiable chain
+		reputationScore = Math.min(reputationScore, 40);
+
+		// Capabilities (0-25): count * proof strength.
+		const attestationCaps = capCount - chainBackedCaps;
+		const capabilityScore = Math.min(attestationCaps * 5 + chainBackedCaps * 10, 25);
+
+		// Track record (0-20): badge count, diminishing returns.
+		const trackRecordScore = Math.min(Math.round(Math.sqrt(badgeCount) * 10), 20);
+
+		// Solvency (0-15): log-scale balance (100 CKB = ~7, 1000 = ~10, 10000 = ~13).
+		const balanceCkb = identity.spending_limit_ckb > 0 ? identity.daily_limit_ckb : 0;
+		const solvencyScore = Math.min(Math.round(Math.log10(Math.max(balanceCkb, 1)) * 5), 15);
+
+		const composite = reputationScore + capabilityScore + trackRecordScore + solvencyScore;
+
+		const trustLevel =
+			composite >= 80 ? 'excellent' :
+			composite >= 60 ? 'good' :
+			composite >= 40 ? 'developing' :
+			composite >= 20 ? 'new' :
+			'unknown';
+
+		res.json({
+			lock_args,
+			trust_score: composite,
+			trust_level: trustLevel,
+			breakdown: {
+				reputation: {
+					score: reputationScore,
+					max: 40,
+					jobs_completed: jobsCompleted,
+					jobs_abandoned: jobsAbandoned,
+					has_proof_chain: hasProofChain,
+				},
+				capabilities: {
+					score: capabilityScore,
+					max: 25,
+					total: capCount,
+					chain_backed: chainBackedCaps,
+					attestation: attestationCaps,
+				},
+				track_record: {
+					score: trackRecordScore,
+					max: 20,
+					badges: badgeCount,
+				},
+				solvency: {
+					score: solvencyScore,
+					max: 15,
+				},
+			},
+			identity_version: identity.version,
+		});
+	} catch (e) {
+		console.error('agents route error:', e);
+		res.status(502).json({ error: 'upstream request failed' });
+	}
+});
+
 export default router;

@@ -81,6 +81,21 @@ router.get('/', (_req, res) => {
 					path: '/agents/:lock_args/capabilities',
 					description: 'Capability NFTs held by the agent.',
 				},
+				reputation_verify: {
+					method: 'GET',
+					path: '/agents/:lock_args/reputation/verify?settlement_hashes=0x...,0x...',
+					description: 'Replay blake2b hash chain against on-chain proof_root to verify reputation history.',
+				},
+				sub_agents: {
+					method: 'GET',
+					path: '/agents/:lock_args/sub-agents',
+					description: 'List sub-agents delegated by this agent (V1 identity cells).',
+				},
+				trust_score: {
+					method: 'GET',
+					path: '/agents/:lock_args/trust',
+					description: 'Composite 0-100 trust score synthesized from on-chain identity, reputation, capabilities, badges, and solvency.',
+				},
 			},
 			chain: {
 				height: { method: 'GET', path: '/chain/height', description: 'Current block height.' },
@@ -88,6 +103,11 @@ router.get('/', (_req, res) => {
 					method: 'GET',
 					path: '/chain/balance/:lock_args',
 					description: 'CKB balance for a lock_args.',
+				},
+				cells: {
+					method: 'GET',
+					path: '/chain/cells?code_hash=0x...&hash_type=data1&args=0x&script_type=type',
+					description: 'Scan cells by script (generic indexer query).',
 				},
 			},
 			fiber: {
