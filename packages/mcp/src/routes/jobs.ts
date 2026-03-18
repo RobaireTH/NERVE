@@ -219,4 +219,75 @@ router.get('/:tx_hash/:index', async (req, res) => {
 	}
 });
 
+// GET /jobs/stream — SSE endpoint for real-time job state changes.
+// Polls the CKB indexer every 10s and emits events when jobs are created, updated, or consumed.
+router.get('/stream', (req, res) => {
+	if (!JOB_TYPE_CODE_HASH) {
+		res.status(503).json({ error: 'JOB_CELL_TYPE_CODE_HASH not configured' });
+		return;
+	}
+
+	res.setHeader('Content-Type', 'text/event-stream');
+	res.setHeader('Cache-Control', 'no-cache');
+	res.setHeader('Connection', 'keep-alive');
+	res.flushHeaders();
+
+	const prevJobs = new Map<string, ParsedJob>();
+	let stopped = false;
+
+	const poll = async () => {
+		if (stopped) return;
+		try {
+			const script: Script = {
+				code_hash: JOB_TYPE_CODE_HASH,
+				hash_type: 'data1',
+				args: '0x',
+			};
+			const result = await getCellsByScript(script, 'type', 200);
+			const currentJobs = new Map<string, ParsedJob>();
+
+			for (const cell of result.objects) {
+				const job = parseJobCell(cell);
+				if (!job) continue;
+				const key = `${job.out_point.tx_hash}:${job.out_point.index}`;
+				currentJobs.set(key, job);
+
+				const prev = prevJobs.get(key);
+				if (!prev) {
+					// New job appeared.
+					const eventName = `job:${job.status.toLowerCase()}`;
+					res.write(`event: ${eventName}\ndata: ${JSON.stringify(job)}\n\n`);
+				} else if (prev.status !== job.status) {
+					// Status changed.
+					const eventName = `job:${job.status.toLowerCase()}`;
+					res.write(`event: ${eventName}\ndata: ${JSON.stringify(job)}\n\n`);
+				}
+			}
+
+			// Detect consumed (expired/removed) cells.
+			for (const [key, prev] of prevJobs) {
+				if (!currentJobs.has(key)) {
+					res.write(`event: job:expired\ndata: ${JSON.stringify(prev)}\n\n`);
+				}
+			}
+
+			prevJobs.clear();
+			for (const [key, job] of currentJobs) {
+				prevJobs.set(key, job);
+			}
+		} catch (e) {
+			console.error('SSE poll error:', e);
+		}
+	};
+
+	// Initial poll, then every 10 seconds.
+	poll();
+	const interval = setInterval(poll, 10_000);
+
+	req.on('close', () => {
+		stopped = true;
+		clearInterval(interval);
+	});
+});
+
 export default router;

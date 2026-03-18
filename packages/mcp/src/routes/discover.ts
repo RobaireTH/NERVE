@@ -49,6 +49,11 @@ router.get('/', (_req, res) => {
 					description: 'Post a new job (proxied to nerve-core).',
 					body: '{ reward_ckb, ttl_blocks, capability_hash }',
 				},
+				stream_jobs: {
+					method: 'GET',
+					path: '/jobs/stream',
+					description: 'SSE stream of real-time job state changes (open, reserved, claimed, completed, expired).',
+				},
 			},
 			agents: {
 				identity: {
@@ -60,6 +65,11 @@ router.get('/', (_req, res) => {
 					method: 'GET',
 					path: '/agents/:lock_args/reputation',
 					description: 'Agent reputation (jobs completed/abandoned).',
+				},
+				reputation_status: {
+					method: 'GET',
+					path: '/agents/:lock_args/reputation/status',
+					description: 'Dispute window status: pending proposals, blocks remaining, finalizability.',
 				},
 				badges: {
 					method: 'GET',
