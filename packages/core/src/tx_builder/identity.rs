@@ -100,6 +100,7 @@ pub fn encode_identity_data_v1(
 }
 
 /// Serializes a v2 agent identity cell data (88 bytes) with daily spending accumulator.
+#[allow(dead_code)]
 pub fn encode_identity_data_v2(
 	pubkey: &[u8; 33],
 	spending_limit_shannons: u64,
