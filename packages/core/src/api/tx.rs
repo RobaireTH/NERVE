@@ -1,4 +1,4 @@
-use axum::{extract::State, Json};
+use axum::{extract::{rejection::JsonRejection, State}, Json};
 use serde::Deserialize;
 use serde_json::{json, Value};
 
@@ -8,11 +8,17 @@ use crate::{
 	tx_builder::intents::{build_and_sign, BuildRequest, BuildResult},
 };
 
+fn parse_build_request(body: Result<Json<BuildRequest>, JsonRejection>) -> Result<BuildRequest, TxBuildError> {
+	body.map(|Json(req)| req)
+		.map_err(|e| TxBuildError::UnknownIntent(e.body_text()))
+}
+
 /// POST /tx/build — build and sign a transaction without broadcasting.
 pub async fn build_tx(
 	State(state): State<AppState>,
-	Json(req): Json<BuildRequest>,
+	body: Result<Json<BuildRequest>, JsonRejection>,
 ) -> Result<Json<BuildResult>, TxBuildError> {
+	let req = parse_build_request(body)?;
 	let result = build_and_sign(&state, req).await?;
 	Ok(Json(result))
 }
@@ -34,8 +40,9 @@ pub async fn broadcast_tx(
 /// POST /tx/build-and-broadcast — build, sign, and immediately broadcast.
 pub async fn build_and_broadcast(
 	State(state): State<AppState>,
-	Json(req): Json<BuildRequest>,
+	body: Result<Json<BuildRequest>, JsonRejection>,
 ) -> Result<Json<Value>, TxBuildError> {
+	let req = parse_build_request(body)?;
 	let result = build_and_sign(&state, req).await?;
 	let tx_hash = state.ckb.send_transaction(&result.tx).await?;
 	Ok(Json(json!({ "tx_hash": tx_hash })))
