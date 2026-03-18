@@ -1,23 +1,58 @@
 // Agent Identity Type Script
 //
-// Enforces agent identity uniqueness and per-transaction spending caps at
-// CKB consensus level.
+// Enforces agent identity uniqueness, per-transaction spending caps, daily
+// spending accumulation, and parent-child delegation at CKB consensus level.
 //
 // Type script args layout:
 //   [0..32]  type_id: [u8; 32]  (guarantees singleton via CKB Type ID pattern)
 //
-// Cell data layout (little-endian):
+// Cell data layout v0 (50 bytes, little-endian):
 //   [0]      version: u8       = 0
 //   [1..34]  pubkey: [u8; 33]  compressed secp256k1 pubkey
 //   [34..42] spending_limit_per_tx: u64  (shannons)
 //   [42..50] daily_limit: u64           (shannons; enforced off-chain)
 //
+// Cell data layout v1 (72 bytes, little-endian):
+//   [0]      version: u8       = 1
+//   [1..34]  pubkey: [u8; 33]  compressed secp256k1 pubkey
+//   [34..42] spending_limit_per_tx: u64  (shannons)
+//   [42..50] daily_limit: u64           (shannons; enforced off-chain)
+//   [50..70] parent_lock_args: [u8; 20] (all zeros = root agent)
+//   [70..72] revenue_share_bps: u16 LE  (basis points: 1000 = 10%)
+//
+// Cell data layout v2 (88 bytes, little-endian):
+//   [0]      version: u8       = 2
+//   [1..34]  pubkey: [u8; 33]  compressed secp256k1 pubkey
+//   [34..42] spending_limit_per_tx: u64  (shannons)
+//   [42..50] daily_limit: u64           (shannons; enforced on-chain via accumulator)
+//   [50..70] parent_lock_args: [u8; 20] (all zeros = root agent)
+//   [70..72] revenue_share_bps: u16 LE  (basis points: 1000 = 10%)
+//   [72..80] daily_spent: u64           (accumulated spending in current day window)
+//   [80..88] last_reset_epoch: u64      (epoch number when accumulator was last reset)
+//
 // CREATION MODE (no GroupInput):
 //   - Type ID must be valid (singleton guarantee).
-//   - Cell data must be >= 50 bytes with valid spending_limit and daily_limit.
+//   - V0: data >= 50 bytes, spending_limit > 0, daily_limit >= spending_limit.
+//   - V1: data >= 72 bytes, same limit checks, plus:
+//     - revenue_share_bps must be <= 10000.
+//     - If parent_lock_args is non-zero (sub-agent):
+//       - Parent must have signed (an input has matching lock.args).
+//       - Child spending_limit must not exceed parent's (parent identity in cell_deps).
+//   - V2: data >= 88 bytes, same checks as v1, plus:
+//     - daily_spent must be 0 (fresh accumulator).
+//     - last_reset_epoch must be 0.
 //
 // UPDATE MODE (GroupInput and GroupOutput both present):
 //   - Type ID singleton enforced.
+//   - V0/V1: identity data must be identical (fully immutable).
+//   - V2: config portion [0..72] must be identical (immutable); accumulator
+//     [72..88] is mutable with epoch-based daily limit enforcement:
+//     - Reads current epoch from header_deps[0].
+//     - Day window = epoch_number / EPOCHS_PER_DAY (6 epochs ≈ 24h on mainnet).
+//     - Accumulator resets when the day window changes.
+//     - new_daily_spent = (reset? 0 : old_daily_spent) + transferred_to_others.
+//     - new_daily_spent must not exceed daily_limit.
+//     - Output must contain correct daily_spent and last_reset_epoch.
 //   - Total capacity flowing to non-agent addresses must not exceed spending_limit.
 //
 // BURN PROTECTION:
@@ -30,10 +65,14 @@
 
 use ckb_std::{
 	ckb_constants::Source,
+	ckb_types::prelude::Entity,
 	default_alloc,
 	entry,
 	error::SysError,
-	high_level::{load_cell_capacity, load_cell_data, load_cell_lock_hash},
+	high_level::{
+		load_cell_capacity, load_cell_data, load_cell_lock, load_cell_lock_hash,
+		load_cell_type_hash, load_header,
+	},
 	type_id::check_type_id,
 };
 
@@ -47,6 +86,16 @@ const ERR_INVALID_DAILY_LIMIT: i8 = 4;
 const ERR_SPENDING_LIMIT_EXCEEDED: i8 = 5;
 const ERR_TYPE_ID: i8 = 6;
 const ERR_BURN_FORBIDDEN: i8 = 7;
+const ERR_INVALID_REVENUE_SHARE: i8 = 8;
+const ERR_PARENT_NOT_SIGNED: i8 = 9;
+const ERR_SPENDING_EXCEEDS_PARENT: i8 = 10;
+const ERR_IDENTITY_DATA_CHANGED: i8 = 11;
+const ERR_DAILY_LIMIT_EXCEEDED: i8 = 12;
+const ERR_INVALID_ACCUMULATOR: i8 = 13;
+
+/// CKB epochs per "day" for the daily spending accumulator.
+/// On mainnet, each epoch targets ~4 hours, so 6 epochs ≈ 24 hours.
+const EPOCHS_PER_DAY: u64 = 6;
 
 fn sys_err(_: SysError) -> i8 {
 	ERR_SYS
@@ -91,12 +140,17 @@ fn run() -> Result<(), i8> {
 fn validate_creation() -> Result<(), i8> {
 	let data = load_cell_data(0, Source::GroupOutput).map_err(|_| ERR_INVALID_DATA)?;
 
-	// Minimum: version(1) + pubkey(33) + spending_limit(8) + daily_limit(8) = 50 bytes.
-	if data.len() < 50 {
-		return Err(ERR_INVALID_DATA);
+	match data.first().copied() {
+		Some(0) => validate_creation_v0(&data),
+		Some(1) => validate_creation_v1(&data),
+		Some(2) => validate_creation_v2(&data),
+		_ => Err(ERR_INVALID_DATA),
 	}
+}
 
-	if data[0] != 0 {
+/// V0 creation: 50 bytes, spending and daily limits validated.
+fn validate_creation_v0(data: &[u8]) -> Result<(), i8> {
+	if data.len() < 50 {
 		return Err(ERR_INVALID_DATA);
 	}
 
@@ -113,11 +167,104 @@ fn validate_creation() -> Result<(), i8> {
 	Ok(())
 }
 
+/// V1 creation: 72 bytes, adds parent delegation and revenue sharing.
+///
+/// Enforces:
+///   - revenue_share_bps <= 10000.
+///   - If parent_lock_args is non-zero (sub-agent):
+///     - Parent must have signed the TX (an input has matching lock.args).
+///     - Child spending_limit <= parent's spending_limit (parent identity in cell_deps).
+fn validate_creation_v1(data: &[u8]) -> Result<(), i8> {
+	if data.len() < 72 {
+		return Err(ERR_INVALID_DATA);
+	}
+
+	let spending_limit = read_u64_le(&data[34..42]).ok_or(ERR_INVALID_DATA)?;
+	if spending_limit == 0 {
+		return Err(ERR_INVALID_SPENDING_LIMIT);
+	}
+
+	let daily_limit = read_u64_le(&data[42..50]).ok_or(ERR_INVALID_DATA)?;
+	if daily_limit < spending_limit {
+		return Err(ERR_INVALID_DAILY_LIMIT);
+	}
+
+	let revenue_share_bps = read_u16_le(&data[70..72]).ok_or(ERR_INVALID_DATA)?;
+	if revenue_share_bps > 10000 {
+		return Err(ERR_INVALID_REVENUE_SHARE);
+	}
+
+	let parent_lock_args = &data[50..70];
+	let has_parent = !parent_lock_args.iter().all(|&b| b == 0);
+
+	if has_parent {
+		// Parent must have signed: verify an input cell has lock.args matching parent_lock_args.
+		if !verify_parent_in_inputs(parent_lock_args)? {
+			return Err(ERR_PARENT_NOT_SIGNED);
+		}
+
+		// Child spending_limit must not exceed parent's (parent identity cell in cell_deps).
+		verify_spending_within_parent(parent_lock_args, spending_limit)?;
+	}
+
+	Ok(())
+}
+
+/// V2 creation: 88 bytes, extends v1 with daily spending accumulator.
+///
+/// Same checks as v1, plus:
+///   - daily_spent must be 0 (fresh accumulator).
+///   - last_reset_epoch must be 0.
+fn validate_creation_v2(data: &[u8]) -> Result<(), i8> {
+	if data.len() < 88 {
+		return Err(ERR_INVALID_DATA);
+	}
+
+	// Reuse v1 checks for the shared config portion.
+	validate_creation_v1(data)?;
+
+	// Accumulator must start at zero.
+	let daily_spent = read_u64_le(&data[72..80]).ok_or(ERR_INVALID_DATA)?;
+	if daily_spent != 0 {
+		return Err(ERR_INVALID_ACCUMULATOR);
+	}
+
+	let last_reset_epoch = read_u64_le(&data[80..88]).ok_or(ERR_INVALID_DATA)?;
+	if last_reset_epoch != 0 {
+		return Err(ERR_INVALID_ACCUMULATOR);
+	}
+
+	Ok(())
+}
+
 fn validate_spending() -> Result<(), i8> {
-	// Read the spending limit from the agent identity cell being consumed.
 	let identity_data = load_cell_data(0, Source::GroupInput).map_err(|_| ERR_INVALID_DATA)?;
 	if identity_data.len() < 50 {
 		return Err(ERR_INVALID_DATA);
+	}
+
+	let output_data = load_cell_data(0, Source::GroupOutput).map_err(|_| ERR_INVALID_DATA)?;
+
+	let version = identity_data[0];
+
+	// V0/V1: identity data must be fully identical (immutable).
+	// V2: only the config portion [0..72] must match; accumulator [72..88] is mutable.
+	match version {
+		0 | 1 => {
+			if identity_data != output_data {
+				return Err(ERR_IDENTITY_DATA_CHANGED);
+			}
+		}
+		2 => {
+			if identity_data.len() < 88 || output_data.len() < 88 {
+				return Err(ERR_INVALID_DATA);
+			}
+			// Immutable config portion.
+			if identity_data[..72] != output_data[..72] {
+				return Err(ERR_IDENTITY_DATA_CHANGED);
+			}
+		}
+		_ => return Err(ERR_INVALID_DATA),
 	}
 
 	let spending_limit = read_u64_le(&identity_data[34..42]).ok_or(ERR_INVALID_DATA)?;
@@ -142,14 +289,140 @@ fn validate_spending() -> Result<(), i8> {
 		}
 	}
 
+	// Per-transaction spending limit (all versions).
 	if transferred_to_others > spending_limit {
 		return Err(ERR_SPENDING_LIMIT_EXCEEDED);
+	}
+
+	// V2: on-chain daily spending accumulator enforcement.
+	if version == 2 {
+		validate_daily_accumulator(&identity_data, &output_data, transferred_to_others)?;
 	}
 
 	Ok(())
 }
 
+/// Validates the v2 daily spending accumulator.
+///
+/// Uses epoch-based day windows: day_number = epoch_number / EPOCHS_PER_DAY.
+/// When the day window changes, the accumulator resets. The output cell must
+/// contain the correct new daily_spent and the current epoch number.
+fn validate_daily_accumulator(
+	input_data: &[u8],
+	output_data: &[u8],
+	transferred: u64,
+) -> Result<(), i8> {
+	let daily_limit = read_u64_le(&input_data[42..50]).ok_or(ERR_INVALID_DATA)?;
+	let old_daily_spent = read_u64_le(&input_data[72..80]).ok_or(ERR_INVALID_DATA)?;
+	let old_reset_epoch = read_u64_le(&input_data[80..88]).ok_or(ERR_INVALID_DATA)?;
+
+	// Get current epoch from header_deps[0].
+	let current_epoch = load_header_dep_epoch_number()?;
+	let old_day = old_reset_epoch / EPOCHS_PER_DAY;
+	let current_day = current_epoch / EPOCHS_PER_DAY;
+
+	// Reset accumulator if the day window has changed.
+	let base_spent = if current_day != old_day { 0 } else { old_daily_spent };
+	let new_daily_spent = base_spent.saturating_add(transferred);
+
+	if new_daily_spent > daily_limit {
+		return Err(ERR_DAILY_LIMIT_EXCEEDED);
+	}
+
+	// Verify the output cell contains the correct accumulator values.
+	let out_daily_spent = read_u64_le(&output_data[72..80]).ok_or(ERR_INVALID_DATA)?;
+	let out_reset_epoch = read_u64_le(&output_data[80..88]).ok_or(ERR_INVALID_DATA)?;
+
+	if out_daily_spent != new_daily_spent {
+		return Err(ERR_INVALID_ACCUMULATOR);
+	}
+	if out_reset_epoch != current_epoch {
+		return Err(ERR_INVALID_ACCUMULATOR);
+	}
+
+	Ok(())
+}
+
+/// Reads the epoch number from header_deps[0].
+///
+/// CKB epoch encoding: lower 24 bits = epoch number.
+fn load_header_dep_epoch_number() -> Result<u64, i8> {
+	let header = load_header(0, Source::HeaderDep).map_err(sys_err)?;
+	let epoch_raw = read_u64_le(header.raw().epoch().as_slice()).ok_or(ERR_INVALID_DATA)?;
+	Ok(epoch_raw & 0x00FF_FFFF) // lower 24 bits = epoch number
+}
+
 fn read_u64_le(bytes: &[u8]) -> Option<u64> {
 	let arr: [u8; 8] = bytes.get(..8)?.try_into().ok()?;
 	Some(u64::from_le_bytes(arr))
+}
+
+fn read_u16_le(bytes: &[u8]) -> Option<u16> {
+	let arr: [u8; 2] = bytes.get(..2)?.try_into().ok()?;
+	Some(u16::from_le_bytes(arr))
+}
+
+/// Checks whether any transaction input has lock.args matching `parent_lock_args`.
+/// If an input matches, the parent's lock script was validated by consensus,
+/// which proves the parent signed this transaction.
+fn verify_parent_in_inputs(parent_lock_args: &[u8]) -> Result<bool, i8> {
+	let mut i = 0;
+	loop {
+		match load_cell_lock(i, Source::Input) {
+			Ok(lock) => {
+				if lock.args().raw_data().as_ref() == parent_lock_args {
+					return Ok(true);
+				}
+				i += 1;
+			}
+			Err(SysError::IndexOutOfBound) => break,
+			Err(e) => return Err(sys_err(e)),
+		}
+	}
+	Ok(false)
+}
+
+/// Verifies the child's spending_limit does not exceed the parent's.
+/// Scans cell_deps for a typed cell whose lock.args matches parent_lock_args,
+/// reads the parent's spending_limit from identity data, and compares.
+fn verify_spending_within_parent(
+	parent_lock_args: &[u8],
+	child_spending_limit: u64,
+) -> Result<(), i8> {
+	let mut i = 0;
+	loop {
+		let data = match load_cell_data(i, Source::CellDep) {
+			Ok(d) => d,
+			Err(SysError::IndexOutOfBound) => break,
+			Err(e) => return Err(sys_err(e)),
+		};
+
+		// Identity cell: at least 50 bytes, version 0, 1, or 2.
+		if data.len() >= 50 && matches!(data[0], 0 | 1 | 2) {
+			// Must have a type script to prevent spoofing with plain data cells.
+			let has_type = load_cell_type_hash(i, Source::CellDep)
+				.map_err(sys_err)?
+				.is_some();
+			if !has_type {
+				i += 1;
+				continue;
+			}
+
+			// Check if this cell_dep's lock.args matches parent_lock_args.
+			let lock = load_cell_lock(i, Source::CellDep).map_err(sys_err)?;
+			if lock.args().raw_data().as_ref() == parent_lock_args {
+				let parent_spending =
+					read_u64_le(&data[34..42]).ok_or(ERR_INVALID_DATA)?;
+				if child_spending_limit > parent_spending {
+					return Err(ERR_SPENDING_EXCEEDS_PARENT);
+				}
+				return Ok(());
+			}
+		}
+
+		i += 1;
+	}
+
+	// Parent identity cell not found in cell_deps.
+	Err(ERR_SPENDING_EXCEEDS_PARENT)
 }

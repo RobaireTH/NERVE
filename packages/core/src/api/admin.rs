@@ -126,7 +126,6 @@ pub async fn test_spending_cap(
 		.map(|d| d.content.clone())
 		.unwrap_or_else(|| "0x".into());
 
-	// Parse spending limit from identity data.
 	let identity_bytes = hex::decode(identity_data_hex.trim_start_matches("0x"))
 		.map_err(|e| TxBuildError::Rpc(format!("bad identity data: {e}")))?;
 	if identity_bytes.len() < 50 {
@@ -138,7 +137,6 @@ pub async fn test_spending_cap(
 	// Build an overspend TX: the amount exceeds the spending limit.
 	let overspend_amount = spending_limit + 100_000_000; // limit + 1 CKB
 
-	// Gather fee inputs (plain cells only).
 	let mut fee_inputs = Vec::new();
 	let mut fee_capacity: u64 = 0;
 	let needed = overspend_amount + 61 * 100_000_000 + 2_000_000; // payment + change + fee
