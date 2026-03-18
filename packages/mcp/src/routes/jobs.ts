@@ -285,6 +285,13 @@ router.get('/stream', (req, res) => {
 	const prevJobs = new Map<string, ParsedJob>();
 	let stopped = false;
 
+	// Guard against writes to a destroyed stream.
+	res.on('error', () => { stopped = true; });
+
+	const emit = (event: string, data: unknown) => {
+		if (!stopped) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+	};
+
 	const poll = async () => {
 		if (stopped) return;
 		try {
@@ -304,20 +311,16 @@ router.get('/stream', (req, res) => {
 
 				const prev = prevJobs.get(key);
 				if (!prev) {
-					// New job appeared.
-					const eventName = `job:${job.status.toLowerCase()}`;
-					res.write(`event: ${eventName}\ndata: ${JSON.stringify(job)}\n\n`);
+					emit(`job:${job.status.toLowerCase()}`, job);
 				} else if (prev.status !== job.status) {
-					// Status changed.
-					const eventName = `job:${job.status.toLowerCase()}`;
-					res.write(`event: ${eventName}\ndata: ${JSON.stringify(job)}\n\n`);
+					emit(`job:${job.status.toLowerCase()}`, job);
 				}
 			}
 
 			// Detect consumed (expired/removed) cells.
 			for (const [key, prev] of prevJobs) {
 				if (!currentJobs.has(key)) {
-					res.write(`event: job:expired\ndata: ${JSON.stringify(prev)}\n\n`);
+					emit('job:expired', prev);
 				}
 			}
 
@@ -325,19 +328,26 @@ router.get('/stream', (req, res) => {
 			for (const [key, job] of currentJobs) {
 				prevJobs.set(key, job);
 			}
+
+			// Heartbeat keeps the connection alive through reverse proxies.
+			if (!stopped) res.write(': heartbeat\n\n');
 		} catch (e) {
 			console.error('SSE poll error:', e);
 		}
 	};
 
-	// Initial poll, then every 10 seconds.
+	// Poll-then-schedule pattern prevents concurrent polls.
+	const scheduleNext = () => {
+		if (stopped) return;
+		setTimeout(async () => {
+			await poll();
+			scheduleNext();
+		}, 10_000);
+	};
 	poll();
-	const interval = setInterval(poll, 10_000);
+	scheduleNext();
 
-	req.on('close', () => {
-		stopped = true;
-		clearInterval(interval);
-	});
+	req.on('close', () => { stopped = true; });
 });
 
 export default router;

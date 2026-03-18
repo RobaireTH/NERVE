@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import blake2b from 'blake2b';
-import { getCellsByScript, getTipBlockNumber, Script } from '../ckb.js';
+import { getCellsByScript, getBalanceByLock, getTipBlockNumber, Script } from '../ckb.js';
 
 const router = Router();
 
@@ -538,8 +538,12 @@ router.get('/:lock_args/trust', async (req, res) => {
 		// Track record (0-20): badge count, diminishing returns.
 		const trackRecordScore = Math.min(Math.round(Math.sqrt(badgeCount) * 10), 20);
 
-		// Solvency (0-15): log-scale balance (100 CKB = ~7, 1000 = ~10, 10000 = ~13).
-		const balanceCkb = identity.spending_limit_ckb > 0 ? identity.daily_limit_ckb : 0;
+		// Solvency (0-15): log-scale on-chain balance.
+		let balanceCkb = 0;
+		try {
+			const shannons = await getBalanceByLock(lock_args);
+			balanceCkb = Number(shannons / 100_000_000n);
+		} catch { /* balance lookup failed — use 0 */ }
 		const solvencyScore = Math.min(Math.round(Math.log10(Math.max(balanceCkb, 1)) * 5), 15);
 
 		const composite = reputationScore + capabilityScore + trackRecordScore + solvencyScore;
