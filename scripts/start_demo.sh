@@ -35,7 +35,7 @@ POSTER_URL="http://localhost:$POSTER_PORT"
 WORKER_URL="http://localhost:$WORKER_PORT"
 MCP_URL="${MCP_URL:-http://localhost:8081}"
 
-REWARD_CKB="${DEMO_REWARD_CKB:-5}"
+REWARD_CKB="${DEMO_REWARD_CKB:-62}"
 TTL_BLOCKS="${DEMO_TTL_BLOCKS:-200}"
 
 # ── Validation ─────────────────────────────────────────────────────────────────
@@ -180,8 +180,8 @@ echo "   Explorer: https://testnet.explorer.nervos.org/transaction/$RESERVE_TX"
 
 wait_committed_and_indexed "$RESERVE_TX" "0x0" "reserve"
 
-step "3. Worker: claiming job $RESERVE_TX:0"
-CLAIM_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
+step "3. Poster: claiming job $RESERVE_TX:0 (poster holds the cell lock)"
+CLAIM_RESP=$(curl -sf -X POST "$POSTER_URL/tx/build-and-broadcast" \
 	-H "Content-Type: application/json" \
 	-d "{\"intent\":\"claim_job\",\"job_tx_hash\":\"$RESERVE_TX\",\"job_index\":0}")
 CLAIM_TX=$(echo "$CLAIM_RESP" | grep -o '"tx_hash":"[^"]*"' | cut -d'"' -f4)
