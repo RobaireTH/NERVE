@@ -164,6 +164,15 @@ impl CkbClient {
 		parse_hex_u64(&hex)
 	}
 
+	/// Returns the tip block header hash (for use in header_deps).
+	pub async fn get_tip_header_hash(&self) -> Result<String, TxBuildError> {
+		let header: Value = self.rpc("get_tip_header", json!([])).await?;
+		header["hash"]
+			.as_str()
+			.map(|s| s.to_string())
+			.ok_or_else(|| TxBuildError::Rpc("tip header missing hash field".into()))
+	}
+
 	/// Returns live cells matching the given lock script.
 	///
 	/// Only returns cells with empty data (`output_data_len == 0`) to avoid

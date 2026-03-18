@@ -13,7 +13,6 @@ use crate::{
 use super::molecule::compute_raw_tx_hash;
 use super::signing::{inject_witness, placeholder_witness, sign_tx};
 
-// Job status bytes.
 pub const STATUS_OPEN: u8 = 0;
 pub const STATUS_RESERVED: u8 = 1;
 pub const STATUS_CLAIMED: u8 = 2;
@@ -53,7 +52,7 @@ pub fn encode_job_data(
 	capability_hash: &[u8; 32],
 ) -> Vec<u8> {
 	let mut data = Vec::with_capacity(90);
-	data.push(0u8); // version
+	data.push(0u8);
 	data.push(STATUS_OPEN);
 	data.extend_from_slice(poster_lock_args);
 	data.extend_from_slice(worker_lock_args);
@@ -66,7 +65,7 @@ pub fn encode_job_data(
 /// Encodes a 33-byte result memo cell data: version(1) + result_hash(32).
 pub fn encode_result_memo(result_hash: &[u8; 32]) -> Vec<u8> {
 	let mut data = Vec::with_capacity(33);
-	data.push(0u8); // version
+	data.push(0u8);
 	data.extend_from_slice(result_hash);
 	data
 }
@@ -154,8 +153,6 @@ async fn gather_fee_inputs(
 	let mut inputs = Vec::new();
 	let mut capacity: u64 = 0;
 	for cell in &cells.objects {
-		// Skip cells with a type script — they are protocol cells (job, reputation, etc.)
-		// and consuming them here would cause a UTXO conflict if they appear as typed inputs.
 		if cell.output.type_script.is_some() {
 			continue;
 		}
@@ -210,11 +207,7 @@ fn placeholder_witnesses(count: usize) -> Vec<Value> {
 		.collect()
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Public intent builders
-// ──────────────────────────────────────────────────────────────────────────────
-
-/// POST /tx/build {intent: "post_job"} — creates an Open job cell.
+/// Creates an Open job cell.
 pub async fn build_post_job(
 	state: &AppState,
 	reward_shannons: u64,
@@ -266,6 +259,9 @@ pub async fn build_post_job(
 }
 
 /// reserve_job — transitions Open → Reserved, sets worker_lock_args.
+///
+/// Includes header_dep for on-chain TTL validation and, when the job requires a capability,
+/// the worker's matching capability NFT as a cell_dep for on-chain verification.
 pub async fn build_reserve_job(
 	state: &AppState,
 	job_tx_hash: &str,
@@ -290,13 +286,25 @@ pub async fn build_reserve_job(
 	all_inputs.extend(fee_inputs);
 	let witnesses = placeholder_witnesses(all_inputs.len());
 
+	// Header dep for TTL validation in the type script.
+	let tip_header_hash = state.ckb.get_tip_header_hash().await?;
+
+	let mut cell_deps = vec![
+		json!({ "out_point": { "tx_hash": SECP256K1_DEP_TX_HASH, "index": "0x0" }, "dep_type": "dep_group" }),
+		json!({ "out_point": { "tx_hash": dep_tx_hash, "index": "0x0" }, "dep_type": "code" }),
+	];
+
+	// If the job requires a capability, find the worker's matching NFT and add as cell_dep.
+	let cap_hash = &job_data[58..90];
+	if !cap_hash.iter().all(|&b| b == 0) {
+		let nft_outpoint = find_worker_capability_nft(state, worker_lock_args, cap_hash).await?;
+		cell_deps.push(json!({ "out_point": nft_outpoint, "dep_type": "code" }));
+	}
+
 	let tx = json!({
 		"version": "0x0",
-		"cell_deps": [
-			{ "out_point": { "tx_hash": SECP256K1_DEP_TX_HASH, "index": "0x0" }, "dep_type": "dep_group" },
-			{ "out_point": { "tx_hash": dep_tx_hash, "index": "0x0" }, "dep_type": "code" },
-		],
-		"header_deps": [],
+		"cell_deps": cell_deps,
+		"header_deps": [tip_header_hash],
 		"inputs": all_inputs,
 		"outputs": [
 			{
@@ -415,6 +423,62 @@ async fn fetch_worker_identity(
 	}
 }
 
+/// Finds a live capability NFT cell matching the worker's lock_args and capability_hash.
+/// Returns the cell's outpoint for use as a cell_dep.
+async fn find_worker_capability_nft(
+	state: &AppState,
+	worker_lock_args: &str,
+	capability_hash: &[u8],
+) -> Result<Value, TxBuildError> {
+	let cap_nft_code_hash = std::env::var("CAP_NFT_TYPE_CODE_HASH").map_err(|_| {
+		TxBuildError::MissingCellDep(
+			"CAP_NFT_TYPE_CODE_HASH not set — run scripts/deploy_contracts.sh first".into(),
+		)
+	})?;
+
+	let type_script = Script {
+		code_hash: cap_nft_code_hash,
+		hash_type: "data1".into(),
+		args: "0x".into(),
+	};
+
+	let cells = state.ckb.get_cells_by_type_script(&type_script, 200).await?;
+
+	for cell in &cells.objects {
+		let live = state
+			.ckb
+			.get_live_cell(&cell.out_point.tx_hash, {
+				u32::from_str_radix(cell.out_point.index.trim_start_matches("0x"), 16).unwrap_or(0)
+			})
+			.await?;
+
+		let data_hex = live
+			.cell
+			.and_then(|c| c.data)
+			.map(|d| d.content)
+			.unwrap_or_else(|| "0x".into());
+		let data = hex::decode(data_hex.trim_start_matches("0x"))
+			.map_err(|e| TxBuildError::Rpc(format!("bad capability NFT data: {e}")))?;
+
+		// Capability NFT layout: [2..22] agent_lock_args, [22..54] capability_hash.
+		if data.len() >= 54 {
+			let nft_lock_args = &data[2..22];
+			let nft_cap_hash = &data[22..54];
+
+			let worker_bytes = parse_lock_args_20(worker_lock_args)?;
+			if nft_lock_args == worker_bytes.as_slice() && nft_cap_hash == capability_hash {
+				return Ok(json!(cell.out_point));
+			}
+		}
+	}
+
+	Err(TxBuildError::CellNotFound(format!(
+		"no capability NFT found for worker {} matching capability_hash 0x{}",
+		worker_lock_args,
+		hex::encode(capability_hash)
+	)))
+}
+
 /// complete_job — destroys the job cell, routes reward to worker and overhead back to poster.
 ///
 /// When `result_hash` is provided, an additional result memo cell (33 bytes of data) is created
@@ -440,7 +504,6 @@ pub async fn build_complete_job(
 	let reward_shannons = u64::from_le_bytes(job_data[42..50].try_into().unwrap());
 	let poster_refund = job_capacity - reward_shannons;
 
-	// Verify reward is large enough for a standalone cell.
 	if reward_shannons < MIN_PAYMENT_CELL {
 		return Err(TxBuildError::InsufficientCapacity {
 			need: MIN_PAYMENT_CELL,
@@ -448,7 +511,6 @@ pub async fn build_complete_job(
 		});
 	}
 
-	// Build worker payment cell lock.
 	let worker_lock = Script {
 		code_hash: SECP256K1_CODE_HASH.into(),
 		hash_type: SECP256K1_HASH_TYPE.into(),
@@ -566,6 +628,9 @@ fn compute_revenue_split(
 }
 
 /// cancel_job — destroys the job cell (Expired), returns capacity to poster.
+///
+/// For non-Open jobs (Reserved/Claimed), includes a header_dep so the type script
+/// can verify the TTL has elapsed before allowing cancellation.
 pub async fn build_cancel_job(
 	state: &AppState,
 	job_tx_hash: &str,
@@ -587,13 +652,21 @@ pub async fn build_cancel_job(
 	let inputs = vec![json!({ "previous_output": { "tx_hash": job_tx_hash, "index": format!("{:#x}", job_index) }, "since": "0x0" })];
 	let witnesses = placeholder_witnesses(inputs.len());
 
+	// Include header_dep for non-Open cancellations (TTL enforcement in type script).
+	let header_deps = if status != STATUS_OPEN {
+		let tip_header_hash = state.ckb.get_tip_header_hash().await?;
+		json!([tip_header_hash])
+	} else {
+		json!([])
+	};
+
 	let tx = json!({
 		"version": "0x0",
 		"cell_deps": [
 			{ "out_point": { "tx_hash": SECP256K1_DEP_TX_HASH, "index": "0x0" }, "dep_type": "dep_group" },
 			{ "out_point": { "tx_hash": dep_tx_hash, "index": "0x0" }, "dep_type": "code" },
 		],
-		"header_deps": [],
+		"header_deps": header_deps,
 		"inputs": inputs,
 		"outputs": [
 			{ "capacity": format!("{:#x}", recovery), "lock": our_lock(state), "type": null },
@@ -680,6 +753,8 @@ mod tests {
 			daily_limit_shannons: 500_000_000,
 			parent_lock_args: None,
 			revenue_share_bps: None,
+			daily_spent: None,
+			last_reset_epoch: None,
 		};
 		let (worker, parent) = compute_revenue_split(reward, &Some(id));
 		assert_eq!(worker, reward);
@@ -697,6 +772,8 @@ mod tests {
 			daily_limit_shannons: 500_000_000,
 			parent_lock_args: Some(parent_args),
 			revenue_share_bps: Some(1000), // 10%
+			daily_spent: None,
+			last_reset_epoch: None,
 		};
 		let (worker, parent) = compute_revenue_split(reward, &Some(id));
 		// 10% of 1000 CKB = 100 CKB parent share, 900 CKB worker share.
@@ -716,6 +793,8 @@ mod tests {
 			daily_limit_shannons: 500_000_000,
 			parent_lock_args: Some([0u8; 20]), // root agent
 			revenue_share_bps: Some(1000),
+			daily_spent: None,
+			last_reset_epoch: None,
 		};
 		let (worker, parent) = compute_revenue_split(reward, &Some(id));
 		assert_eq!(worker, reward);
@@ -733,6 +812,8 @@ mod tests {
 			daily_limit_shannons: 500_000_000,
 			parent_lock_args: Some([0xCC; 20]),
 			revenue_share_bps: Some(1000), // 10%
+			daily_spent: None,
+			last_reset_epoch: None,
 		};
 		let (worker, parent) = compute_revenue_split(reward, &Some(id));
 		assert_eq!(worker, reward);
@@ -749,6 +830,8 @@ mod tests {
 			daily_limit_shannons: 500_000_000,
 			parent_lock_args: Some([0xCC; 20]),
 			revenue_share_bps: Some(0),
+			daily_spent: None,
+			last_reset_epoch: None,
 		};
 		let (worker, parent) = compute_revenue_split(reward, &Some(id));
 		assert_eq!(worker, reward);

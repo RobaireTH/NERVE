@@ -6,13 +6,22 @@
 //   Open (0) → Reserved (1): worker assigned, worker_lock_args must be set
 //   Reserved (1) → Claimed (2): worker begins execution
 //   Claimed (2) → Completed (3): work done, cell can be settled
-//   Any → Expired (4): poster cancels
+//   Any → Expired (4): poster cancels (TTL-gated for non-Open states)
 //
 // Invariants:
 //   - Status can only advance by exactly one step, or jump to Expired (4).
 //   - poster_lock_args, reward, capability_hash, and ttl are immutable after creation.
 //   - On Open→Reserved, worker_lock_args must be non-zero.
-//   - Cell destruction (settlement) is always allowed — the lock script controls access.
+//   - On Open→Reserved, if ttl > 0, header_deps[0] must prove current_block < ttl.
+//   - On Open→Reserved, if capability_hash is non-zero, a cell_dep must contain
+//     a typed cell whose data matches the capability NFT layout with matching
+//     capability_hash and agent_lock_args == worker_lock_args.
+//   - On Reserved/Claimed→Expired, if ttl > 0, header_deps[0] must prove current_block >= ttl.
+//   - Cell destruction rules (status-specific):
+//     - Open: always allowed (poster cancels unclaimed job).
+//     - Reserved: only after TTL (prevents rug-pull during direct destruction too).
+//     - Claimed: settlement — total non-poster outputs must be >= reward_shannons.
+//     - Completed/Expired: always allowed (cleanup).
 //   - Creation: status=Open, poster_lock_args non-zero, reward > 0.
 //
 // Cell data layout (90 bytes minimum, little-endian):
@@ -30,10 +39,13 @@
 
 use ckb_std::{
 	ckb_constants::Source,
+	ckb_types::prelude::Entity,
 	default_alloc,
 	entry,
 	error::SysError,
-	high_level::load_cell_data,
+	high_level::{
+		load_cell_capacity, load_cell_data, load_cell_lock, load_cell_type_hash, load_header,
+	},
 };
 
 default_alloc!();
@@ -46,6 +58,10 @@ const ERR_IMMUTABLE_FIELD_CHANGED: i8 = 4;
 const ERR_ZERO_REWARD: i8 = 5;
 const ERR_ZERO_POSTER: i8 = 6;
 const ERR_ZERO_WORKER: i8 = 7;
+const ERR_JOB_EXPIRED: i8 = 8;
+const ERR_NOT_EXPIRED: i8 = 9;
+const ERR_CAPABILITY_NOT_FOUND: i8 = 10;
+const ERR_WORKER_UNDERPAID: i8 = 11;
 
 const DATA_MIN: usize = 90;
 
@@ -110,10 +126,10 @@ fn validate_transition() -> Result<(), i8> {
 		return Err(ERR_INVALID_DATA);
 	}
 
-	// Cell destruction (settlement/cancellation) is always allowed.
+	// Cell destruction: status-specific rules (see validate_destruction).
 	let new = match load_cell_data(0, Source::GroupOutput) {
 		Ok(d) => d,
-		Err(SysError::IndexOutOfBound) => return Ok(()),
+		Err(SysError::IndexOutOfBound) => return validate_destruction(&old),
 		Err(e) => return Err(sys_err(e)),
 	};
 
@@ -136,10 +152,40 @@ fn validate_transition() -> Result<(), i8> {
 		return Err(ERR_INVALID_STATUS);
 	}
 
-	// When reserving, worker_lock_args must be non-zero.
+	// TTL enforcement via header_deps[0].
+	let ttl = read_u64_le(&old[50..58]).ok_or(ERR_INVALID_DATA)?;
+
+	// Open → Reserved: reject if the job has expired.
 	if old_status == STATUS_OPEN && new_status == STATUS_RESERVED {
+		if ttl > 0 {
+			let current_block = load_header_dep_block_number()?;
+			if current_block >= ttl {
+				return Err(ERR_JOB_EXPIRED);
+			}
+		}
+
+		// Worker_lock_args must be non-zero.
 		if new[22..42].iter().all(|&b| b == 0) {
 			return Err(ERR_ZERO_WORKER);
+		}
+
+		// Capability gate: if capability_hash is non-zero, verify worker holds the NFT.
+		let cap_hash = &new[58..90];
+		if !cap_hash.iter().all(|&b| b == 0) {
+			if !verify_capability_in_cell_deps(cap_hash, &new[22..42])? {
+				return Err(ERR_CAPABILITY_NOT_FOUND);
+			}
+		}
+	}
+
+	// Reserved/Claimed → Expired: only allowed after TTL (prevents poster rug-pulling workers).
+	// Open → Expired: always allowed (poster can cancel unclaimed jobs).
+	if new_status == STATUS_EXPIRED && old_status != STATUS_OPEN {
+		if ttl > 0 {
+			let current_block = load_header_dep_block_number()?;
+			if current_block < ttl {
+				return Err(ERR_NOT_EXPIRED);
+			}
 		}
 	}
 
@@ -160,7 +206,100 @@ fn validate_transition() -> Result<(), i8> {
 	Ok(())
 }
 
+/// Validates cell destruction based on the old status.
+fn validate_destruction(old: &[u8]) -> Result<(), i8> {
+	let status = old[1];
+	match status {
+		// Open: poster cancels unclaimed job — always allowed.
+		STATUS_OPEN => Ok(()),
+
+		// Reserved: poster cancels assigned job — only after TTL.
+		// Same logic as the state-transition TTL check, applied to direct destruction.
+		STATUS_RESERVED => {
+			let ttl = read_u64_le(&old[50..58]).ok_or(ERR_INVALID_DATA)?;
+			if ttl > 0 {
+				let current_block = load_header_dep_block_number()?;
+				if current_block < ttl {
+					return Err(ERR_NOT_EXPIRED);
+				}
+			}
+			Ok(())
+		}
+
+		// Claimed: settlement — the reward must reach non-poster outputs.
+		STATUS_CLAIMED => verify_settlement_outputs(old),
+
+		// Completed/Expired: cleanup — always allowed.
+		STATUS_COMPLETED | STATUS_EXPIRED => Ok(()),
+
+		_ => Err(ERR_INVALID_STATUS),
+	}
+}
+
+/// Verifies that the total capacity in outputs NOT locked to the poster is >= reward.
+/// This ensures the poster cannot destroy a Claimed job cell without paying the worker.
+fn verify_settlement_outputs(old: &[u8]) -> Result<(), i8> {
+	let poster_lock_args = &old[2..22];
+	let reward = read_u64_le(&old[42..50]).ok_or(ERR_INVALID_DATA)?;
+
+	let mut non_poster_total: u64 = 0;
+	let mut i = 0;
+	loop {
+		match load_cell_lock(i, Source::Output) {
+			Ok(lock) => {
+				if lock.args().raw_data().as_ref() != poster_lock_args {
+					let cap = load_cell_capacity(i, Source::Output).map_err(sys_err)?;
+					non_poster_total = non_poster_total.saturating_add(cap);
+				}
+				i += 1;
+			}
+			Err(SysError::IndexOutOfBound) => break,
+			Err(e) => return Err(sys_err(e)),
+		}
+	}
+
+	if non_poster_total < reward {
+		return Err(ERR_WORKER_UNDERPAID);
+	}
+
+	Ok(())
+}
+
 fn read_u64_le(bytes: &[u8]) -> Option<u64> {
 	let arr: [u8; 8] = bytes.get(..8)?.try_into().ok()?;
 	Some(u64::from_le_bytes(arr))
+}
+
+/// Reads the block number from header_deps[0].
+fn load_header_dep_block_number() -> Result<u64, i8> {
+	let header = load_header(0, Source::HeaderDep).map_err(sys_err)?;
+	read_u64_le(header.raw().number().as_slice()).ok_or(ERR_INVALID_DATA)
+}
+
+/// Checks whether a capability NFT matching `cap_hash` and `worker_args` exists in cell_deps.
+///
+/// Capability NFT data layout: [0] version, [1] proof_type, [2..22] agent_lock_args, [22..54] capability_hash.
+/// The cell must have a type script to prevent spoofing with untyped cells.
+fn verify_capability_in_cell_deps(cap_hash: &[u8], worker_args: &[u8]) -> Result<bool, i8> {
+	let mut i = 0;
+	loop {
+		let data = match load_cell_data(i, Source::CellDep) {
+			Ok(d) => d,
+			Err(SysError::IndexOutOfBound) => break,
+			Err(e) => return Err(sys_err(e)),
+		};
+
+		if data.len() >= 54 && data[22..54] == *cap_hash && data[2..22] == *worker_args {
+			// Verify the cell has a type script (prevents spoofing with plain data cells).
+			let has_type = load_cell_type_hash(i, Source::CellDep)
+				.map_err(sys_err)?
+				.is_some();
+			if has_type {
+				return Ok(true);
+			}
+		}
+
+		i += 1;
+	}
+	Ok(false)
 }
