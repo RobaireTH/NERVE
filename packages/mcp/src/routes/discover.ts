@@ -101,6 +101,11 @@ router.get('/', (_req, res) => {
 					path: '/agents/:lock_args/trust',
 					description: 'Composite 0-100 trust score synthesized from on-chain identity, reputation, capabilities, badges, and solvency.',
 				},
+				spending_status: {
+					method: 'GET',
+					path: '/agents/:lock_args/spending',
+					description: 'Daily spending status: budget remaining, utilization, reset epoch (v2 identity cells with on-chain accumulator).',
+				},
 			},
 			chain: {
 				height: { method: 'GET', path: '/chain/height', description: 'Current block height.' },
@@ -232,7 +237,6 @@ router.get('/discover/workers', async (_req, res) => {
 					spendingLimitCkb = Number(raw.readBigUInt64LE(34)) / 1e8;
 					dailyLimitCkb = Number(raw.readBigUInt64LE(42)) / 1e8;
 				}
-				// V1 delegation fields.
 				if (identityVersion >= 1 && raw.length >= 72) {
 					parentLockArgs = '0x' + raw.subarray(50, 70).toString('hex');
 					revenueShareBps = raw.readUInt16LE(70);
