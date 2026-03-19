@@ -16,7 +16,7 @@ const SECP256K1_HASH_TYPE = 'type';
 const MIN_CELL_CAPACITY = 61n * 100_000_000n;
 const IDENTITY_CELL_CAPACITY = 232n * 100_000_000n;
 const REP_CELL_CAPACITY = 172n * 100_000_000n;
-const JOB_CELL_OVERHEAD = 184n * 100_000_000n;
+const JOB_CELL_OVERHEAD = 216n * 100_000_000n;
 const ESTIMATED_FEE = 2_000_000n;
 
 function ckbHash(data: Buffer): Buffer {
@@ -375,11 +375,14 @@ export function encodeJobData(
 	rewardShannons: bigint,
 	ttlBlockHeight: bigint,
 	capabilityHash: Buffer,
+	descriptionHash: Buffer,
+	description: Buffer,
 ): Buffer {
 	if (posterLockArgs.length !== 20) throw new Error('poster_lock_args must be 20 bytes');
 	if (workerLockArgs.length !== 20) throw new Error('worker_lock_args must be 20 bytes');
 	if (capabilityHash.length !== 32) throw new Error('capability_hash must be 32 bytes');
-	const buf = Buffer.alloc(90);
+	if (descriptionHash.length !== 32) throw new Error('description_hash must be 32 bytes');
+	const buf = Buffer.alloc(122 + description.length);
 	buf[0] = 0; // version
 	buf[1] = 0; // status: Open
 	posterLockArgs.copy(buf, 2);
@@ -387,6 +390,8 @@ export function encodeJobData(
 	buf.writeBigUInt64LE(rewardShannons, 42);
 	buf.writeBigUInt64LE(ttlBlockHeight, 50);
 	capabilityHash.copy(buf, 58);
+	descriptionHash.copy(buf, 90);
+	description.copy(buf, 122);
 	return buf;
 }
 
@@ -534,7 +539,7 @@ export async function buildCreateReputation(
 
 export async function buildPostJob(
 	lockArgs: string,
-	params: { reward_ckb: number; ttl_blocks: number; capability_hash?: string },
+	params: { reward_ckb: number; ttl_blocks: number; capability_hash?: string; description?: string },
 ): Promise<TemplateResult> {
 	const typeCodeHash = requireEnv('JOB_CELL_TYPE_CODE_HASH');
 	const depTxHash = requireEnv('JOB_CELL_DEP_TX_HASH');
@@ -548,8 +553,12 @@ export async function buildPostJob(
 		? hexToBuffer(params.capability_hash)
 		: Buffer.alloc(32);
 
-	const jobData = encodeJobData(posterLockArgs, Buffer.alloc(20), rewardShannons, ttlBlockHeight, capHash);
-	const jobCellCapacity = JOB_CELL_OVERHEAD + rewardShannons;
+	const descBytes = params.description ? Buffer.from(params.description, 'utf-8') : Buffer.alloc(0);
+	const descHash = params.description ? ckbHash(descBytes) : Buffer.alloc(32);
+
+	const jobData = encodeJobData(posterLockArgs, Buffer.alloc(20), rewardShannons, ttlBlockHeight, capHash, descHash, descBytes);
+	const descriptionCapacity = BigInt(descBytes.length) * 100_000_000n;
+	const jobCellCapacity = JOB_CELL_OVERHEAD + rewardShannons + descriptionCapacity;
 
 	const needed = jobCellCapacity + ESTIMATED_FEE;
 	const { inputs, capacity } = await collectPlainCells(lockArgs, needed);

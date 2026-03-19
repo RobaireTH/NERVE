@@ -20,6 +20,8 @@ interface ParsedJob {
 	reward_ckb: number;
 	ttl_block_height: string;
 	capability_hash: string;
+	description_hash: string | null;
+	description: string | null;
 	capacity_shannons: string;
 }
 
@@ -43,6 +45,13 @@ function parseJobCell(cell: LiveCell): ParsedJob | null {
 	const ttlBlockHeight = raw.readBigUInt64LE(50);
 	const capabilityHash = '0x' + raw.subarray(58, 90).toString('hex');
 
+	const descriptionHash = raw.length >= 122
+		? '0x' + raw.subarray(90, 122).toString('hex')
+		: null;
+	const description = raw.length > 122
+		? raw.subarray(122).toString('utf-8')
+		: null;
+
 	return {
 		out_point: cell.out_point,
 		status: JOB_STATUS[statusByte],
@@ -51,6 +60,8 @@ function parseJobCell(cell: LiveCell): ParsedJob | null {
 		reward_ckb: Number(rewardShannons) / 1e8,
 		ttl_block_height: ttlBlockHeight.toString(),
 		capability_hash: capabilityHash,
+		description_hash: descriptionHash,
+		description: description,
 		capacity_shannons: BigInt(cell.output.capacity).toString(),
 	};
 }
@@ -207,12 +218,13 @@ router.get('/match/:lock_args', async (req, res) => {
 });
 
 // POST /jobs — post a new job (proxies to nerve-core TX builder).
-// Body: { reward_ckb: number, ttl_blocks: number, capability_hash: string }
+// Body: { reward_ckb: number, ttl_blocks: number, capability_hash: string, description?: string }
 router.post('/', async (req, res) => {
-	const { reward_ckb, ttl_blocks, capability_hash } = req.body as {
+	const { reward_ckb, ttl_blocks, capability_hash, description } = req.body as {
 		reward_ckb?: number;
 		ttl_blocks?: number;
 		capability_hash?: string;
+		description?: string;
 	};
 
 	if (reward_ckb === undefined || typeof reward_ckb !== 'number' || reward_ckb <= 0) {
@@ -227,12 +239,18 @@ router.post('/', async (req, res) => {
 		res.status(400).json({ error: 'capability_hash must be a 0x-prefixed 32-byte hex string' });
 		return;
 	}
+	if (description !== undefined && typeof description !== 'string') {
+		res.status(400).json({ error: 'description must be a string' });
+		return;
+	}
 
 	try {
+		const payload: Record<string, unknown> = { intent: 'post_job', reward_ckb, ttl_blocks, capability_hash };
+		if (description !== undefined) payload.description = description;
 		const response = await fetch(`${CORE_URL}/tx/build-and-broadcast`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ intent: 'post_job', reward_ckb, ttl_blocks, capability_hash }),
+			body: JSON.stringify(payload),
 		});
 		const data = await response.json();
 		res.status(response.status).json(data);
