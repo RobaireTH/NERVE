@@ -7,7 +7,7 @@ use crate::{
 		parse_capacity_hex, AppState, SECP256K1_CODE_HASH, SECP256K1_DEP_TX_HASH,
 		SECP256K1_HASH_TYPE,
 	},
-	tx_builder::identity::{decode_identity_data, IdentityData},
+	tx_builder::identity::{blake2b_256, decode_identity_data, IdentityData},
 };
 
 use super::molecule::compute_raw_tx_hash;
@@ -18,8 +18,9 @@ pub const STATUS_RESERVED: u8 = 1;
 pub const STATUS_CLAIMED: u8 = 2;
 
 // Minimum capacity for a job cell:
-//   cap(8) + lock(53) + type(33) + data(90) = 184 bytes → 184 CKB.
-pub const JOB_CELL_OVERHEAD: u64 = 184 * 100_000_000;
+//   cap(8) + lock(53) + type(33) + data(122) = 216 bytes → 216 CKB.
+//   Data grew from 90 to 122 bytes with the addition of description_hash[32].
+pub const JOB_CELL_OVERHEAD: u64 = 216 * 100_000_000;
 
 // Minimum capacity for a plain secp256k1 payment cell (no type, no data).
 pub const MIN_PAYMENT_CELL: u64 = 61 * 100_000_000;
@@ -49,8 +50,10 @@ pub fn encode_job_data(
 	reward_shannons: u64,
 	ttl_block_height: u64,
 	capability_hash: &[u8; 32],
+	description_hash: &[u8; 32],
+	description: &[u8],
 ) -> Vec<u8> {
-	let mut data = Vec::with_capacity(90);
+	let mut data = Vec::with_capacity(122 + description.len());
 	data.push(0u8);
 	data.push(STATUS_OPEN);
 	data.extend_from_slice(poster_lock_args);
@@ -58,6 +61,8 @@ pub fn encode_job_data(
 	data.extend_from_slice(&reward_shannons.to_le_bytes());
 	data.extend_from_slice(&ttl_block_height.to_le_bytes());
 	data.extend_from_slice(capability_hash);
+	data.extend_from_slice(description_hash);
+	data.extend_from_slice(description);
 	data
 }
 
@@ -205,11 +210,17 @@ pub async fn build_post_job(
 	reward_shannons: u64,
 	ttl_blocks: u64,
 	capability_hash: [u8; 32],
+	description: Option<String>,
 ) -> Result<(Value, String), TxBuildError> {
 	let (type_code_hash, dep_tx_hash) = job_type_env()?;
 
 	let tip = state.ckb.get_tip_block_number().await?;
 	let ttl_block_height = tip + ttl_blocks;
+
+	let (desc_hash, desc_bytes) = match &description {
+		Some(text) => (blake2b_256(text.as_bytes()), text.as_bytes().to_vec()),
+		None => ([0u8; 32], Vec::new()),
+	};
 
 	let poster_lock_args = parse_lock_args_20(&state.lock_args)?;
 	let job_data = encode_job_data(
@@ -218,9 +229,12 @@ pub async fn build_post_job(
 		reward_shannons,
 		ttl_block_height,
 		&capability_hash,
+		&desc_hash,
+		&desc_bytes,
 	);
 
-	let job_cell_capacity = JOB_CELL_OVERHEAD + reward_shannons;
+	let description_capacity = desc_bytes.len() as u64 * 100_000_000;
+	let job_cell_capacity = JOB_CELL_OVERHEAD + reward_shannons + description_capacity;
 	let (fee_inputs, fee_capacity) =
 		gather_fee_inputs(state, job_cell_capacity + ESTIMATED_FEE).await?;
 
@@ -650,12 +664,12 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn encode_job_data_layout() {
+	fn encode_job_data_layout_no_description() {
 		let poster = [0xAA; 20];
 		let worker = [0x00; 20];
 		let cap_hash = [0xCC; 32];
-		let data = encode_job_data(&poster, &worker, 500_000_000, 1000, &cap_hash);
-		assert_eq!(data.len(), 90);
+		let data = encode_job_data(&poster, &worker, 500_000_000, 1000, &cap_hash, &[0u8; 32], &[]);
+		assert_eq!(data.len(), 122);
 		assert_eq!(data[0], 0, "version");
 		assert_eq!(data[1], STATUS_OPEN, "status");
 		assert_eq!(&data[2..22], &poster);
@@ -665,6 +679,20 @@ mod tests {
 		let ttl = u64::from_le_bytes(data[50..58].try_into().unwrap());
 		assert_eq!(ttl, 1000);
 		assert_eq!(&data[58..90], &cap_hash);
+		assert_eq!(&data[90..122], &[0u8; 32]);
+	}
+
+	#[test]
+	fn encode_job_data_layout_with_description() {
+		let poster = [0xAA; 20];
+		let worker = [0x00; 20];
+		let cap_hash = [0xCC; 32];
+		let desc = b"Rent TikTok ad space";
+		let desc_hash = blake2b_256(desc);
+		let data = encode_job_data(&poster, &worker, 500_000_000, 1000, &cap_hash, &desc_hash, desc);
+		assert_eq!(data.len(), 122 + desc.len());
+		assert_eq!(&data[90..122], &desc_hash);
+		assert_eq!(&data[122..], desc);
 	}
 
 	#[test]

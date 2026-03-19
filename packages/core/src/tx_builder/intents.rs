@@ -37,6 +37,8 @@ pub enum BuildRequest {
 		ttl_blocks: u64,
 		/// blake2b-256 hash (0x-prefixed hex) of the required capability type.
 		capability_hash: String,
+		/// Optional UTF-8 task description stored on-chain in the job cell data.
+		description: Option<String>,
 	},
 	/// Transition an Open job cell → Reserved and set the worker's lock_args.
 	ReserveJob {
@@ -219,10 +221,10 @@ pub async fn build_and_sign(
 			})
 		}
 
-		BuildRequest::PostJob { reward_ckb, ttl_blocks, capability_hash } => {
+		BuildRequest::PostJob { reward_ckb, ttl_blocks, capability_hash, description } => {
 			let cap_hash = parse_hash_32(&capability_hash)?;
 			let (tx, tx_hash) =
-				build_post_job(state, ckb_to_shannons(reward_ckb), ttl_blocks, cap_hash).await?;
+				build_post_job(state, ckb_to_shannons(reward_ckb), ttl_blocks, cap_hash, description).await?;
 			Ok(BuildResult { tx_hash, tx, metadata: None })
 		}
 
