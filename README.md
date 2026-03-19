@@ -92,12 +92,10 @@ Capability proofs currently use signed attestations verified via secp256k1 recov
 ### Clone and configure
 
 ```bash
-git clone https://github.com/<you>/nerve.git
-cd nerve
+git clone https://github.com/RobaireTH/NERVE.git
+cd NERVE
 export PATH="$PWD/scripts:$PATH"
 ```
-
-> Replace `<you>` with your GitHub username or the org that hosts the fork.
 
 ```bash
 cp .env.example .env
