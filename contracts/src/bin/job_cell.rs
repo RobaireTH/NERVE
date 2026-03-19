@@ -24,7 +24,7 @@
 //     - Completed/Expired: always allowed (cleanup).
 //   - Creation: status=Open, poster_lock_args non-zero, reward > 0.
 //
-// Cell data layout (90 bytes minimum, little-endian):
+// Cell data layout (122 bytes minimum, little-endian):
 //   [0]       version: u8         = 0
 //   [1]       status: u8          0=Open 1=Reserved 2=Claimed 3=Completed 4=Expired
 //   [2..22]   poster_lock_args:   [u8; 20]
@@ -32,11 +32,14 @@
 //   [42..50]  reward_shannons:    u64 LE
 //   [50..58]  ttl_block_height:   u64 LE
 //   [58..90]  capability_hash:    [u8; 32]
+//   [90..122] description_hash:   [u8; 32]  blake2b of description text (zeros if none)
+//   [122..]   description:        [u8; N]   raw UTF-8 task description (optional)
 
 #![no_std]
 #![no_main]
 #![allow(unexpected_cfgs)]
 
+use ckb_hash::new_blake2b;
 use ckb_std::{
 	ckb_constants::Source,
 	ckb_types::prelude::Entity,
@@ -45,6 +48,7 @@ use ckb_std::{
 	error::SysError,
 	high_level::{
 		load_cell_capacity, load_cell_data, load_cell_lock, load_cell_type_hash, load_header,
+		load_witness_args,
 	},
 };
 
@@ -62,8 +66,10 @@ const ERR_JOB_EXPIRED: i8 = 8;
 const ERR_NOT_EXPIRED: i8 = 9;
 const ERR_CAPABILITY_NOT_FOUND: i8 = 10;
 const ERR_WORKER_UNDERPAID: i8 = 11;
+const ERR_MISSING_RESULT: i8 = 12;
+const ERR_INVALID_RESULT_HASH: i8 = 13;
 
-const DATA_MIN: usize = 90;
+const DATA_MIN: usize = 122;
 
 const STATUS_OPEN: u8 = 0;
 const STATUS_RESERVED: u8 = 1;
@@ -189,7 +195,7 @@ fn validate_transition() -> Result<(), i8> {
 		}
 	}
 
-	// Immutable fields: poster_lock_args, reward, ttl, capability_hash.
+	// Immutable fields: poster_lock_args, reward, ttl, capability_hash, description.
 	if old[2..22] != new[2..22] {
 		return Err(ERR_IMMUTABLE_FIELD_CHANGED);
 	}
@@ -200,6 +206,9 @@ fn validate_transition() -> Result<(), i8> {
 		return Err(ERR_IMMUTABLE_FIELD_CHANGED);
 	}
 	if old[58..90] != new[58..90] {
+		return Err(ERR_IMMUTABLE_FIELD_CHANGED);
+	}
+	if old[90..] != new[90..] {
 		return Err(ERR_IMMUTABLE_FIELD_CHANGED);
 	}
 
@@ -226,14 +235,48 @@ fn validate_destruction(old: &[u8]) -> Result<(), i8> {
 			Ok(())
 		}
 
-		// Claimed: settlement — the reward must reach non-poster outputs.
-		STATUS_CLAIMED => verify_settlement_outputs(old),
+		STATUS_CLAIMED => {
+			verify_result_binding(old)?;
+			verify_settlement_outputs(old)
+		}
 
 		// Completed/Expired: cleanup — always allowed.
 		STATUS_COMPLETED | STATUS_EXPIRED => Ok(()),
 
 		_ => Err(ERR_INVALID_STATUS),
 	}
+}
+
+/// If the job has a non-zero description_hash, the worker must supply a result proof
+/// in witness input_type: [0..32] result_hash, [32..] result_data.
+/// Verifies blake2b(description_hash || result_data) == result_hash.
+fn verify_result_binding(old: &[u8]) -> Result<(), i8> {
+	let desc_hash = &old[90..122];
+	if desc_hash.iter().all(|&b| b == 0) {
+		return Ok(());
+	}
+
+	let witness = load_witness_args(0, Source::GroupInput).map_err(sys_err)?;
+	let input_type = witness.input_type().to_opt().ok_or(ERR_MISSING_RESULT)?;
+	let proof = input_type.raw_data();
+	if proof.len() < 32 {
+		return Err(ERR_MISSING_RESULT);
+	}
+
+	let result_hash = &proof[..32];
+	let result_data = &proof[32..];
+
+	let mut hasher = new_blake2b();
+	hasher.update(desc_hash);
+	hasher.update(result_data);
+	let mut computed = [0u8; 32];
+	hasher.finalize(&mut computed);
+
+	if computed != *result_hash {
+		return Err(ERR_INVALID_RESULT_HASH);
+	}
+
+	Ok(())
 }
 
 /// Verifies that the total capacity in outputs NOT locked to the poster is >= reward.
