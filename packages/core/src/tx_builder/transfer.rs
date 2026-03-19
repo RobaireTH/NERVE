@@ -9,8 +9,7 @@ use crate::{
 use super::molecule::compute_raw_tx_hash;
 use super::signing::{inject_witness, placeholder_witness, sign_tx};
 
-// Minimum CKB required for a cell to exist on-chain (61 CKB).
-const MIN_CELL_CAPACITY: u64 = 6_100_000_000;
+use super::MIN_CELL_CAPACITY;
 // Estimated fee for a simple 1-input, 2-output transfer (in shannons).
 const ESTIMATED_FEE: u64 = 1_000_000;
 

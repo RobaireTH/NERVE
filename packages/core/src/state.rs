@@ -163,7 +163,7 @@ pub fn derive_lock_args(private_key: &[u8]) -> Result<String, TxBuildError> {
 }
 
 pub fn ckb_to_shannons(ckb: f64) -> u64 {
-	(ckb * 1e8) as u64
+	(ckb * 1e8).round() as u64
 }
 
 pub fn shannons_to_ckb(shannons: u64) -> f64 {

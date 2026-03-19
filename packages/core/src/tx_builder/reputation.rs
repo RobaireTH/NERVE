@@ -1,22 +1,18 @@
 use serde_json::{json, Value};
 
 use crate::{
-	ckb_client::Script,
 	errors::TxBuildError,
-	state::{
-		parse_capacity_hex, AppState, SECP256K1_CODE_HASH, SECP256K1_DEP_TX_HASH,
-		SECP256K1_HASH_TYPE,
-	},
+	state::{parse_capacity_hex, AppState, SECP256K1_DEP_TX_HASH},
 };
 
 use super::{
+	gather_fee_inputs, our_lock, placeholder_witnesses, MIN_CELL_CAPACITY,
 	identity::calculate_type_id,
 	molecule::compute_raw_tx_hash,
-	signing::{inject_witness, placeholder_witness, sign_tx},
+	signing::{inject_witness, sign_tx},
 };
 
 const ESTIMATED_FEE: u64 = 2_000_000;
-const MIN_CELL_CAPACITY: u64 = 61 * 100_000_000;
 const REP_DATA_SIZE: usize = 110;
 // Capacity: cap(8) + lock(53) + type(65) + data(110) = 236 bytes → 236 CKB.
 const REP_CELL_CAPACITY: u64 = 236 * 100_000_000;
@@ -35,27 +31,6 @@ fn rep_type_env() -> Result<(String, String), TxBuildError> {
 		)
 	})?;
 	Ok((code_hash, dep_tx_hash))
-}
-
-fn our_lock(state: &AppState) -> Script {
-	Script {
-		code_hash: SECP256K1_CODE_HASH.into(),
-		hash_type: SECP256K1_HASH_TYPE.into(),
-		args: state.lock_args.clone(),
-	}
-}
-
-fn placeholder_witnesses(count: usize) -> Vec<Value> {
-	let ph = format!("0x{}", hex::encode(placeholder_witness()));
-	(0..count)
-		.map(|i| {
-			if i == 0 {
-				serde_json::Value::String(ph.clone())
-			} else {
-				serde_json::Value::String("0x".into())
-			}
-		})
-		.collect()
 }
 
 /// Layout (110 bytes):
@@ -420,34 +395,6 @@ pub async fn build_finalize_reputation(
 	Ok((tx, tx_hash_str))
 }
 
-async fn gather_fee_inputs(
-	state: &AppState,
-	needed: u64,
-) -> Result<(Vec<Value>, u64), TxBuildError> {
-	let agent_lock = our_lock(state);
-	let cells = state.ckb.get_cells_by_lock(&agent_lock, 200).await?;
-
-	let mut inputs = Vec::new();
-	let mut capacity: u64 = 0;
-	for cell in &cells.objects {
-		if cell.output.type_script.is_some() {
-			continue;
-		}
-		let cap = parse_capacity_hex(&cell.output.capacity)?;
-		inputs.push(json!({ "previous_output": cell.out_point, "since": "0x0" }));
-		capacity += cap;
-		if capacity >= needed + MIN_CELL_CAPACITY {
-			break;
-		}
-	}
-	if capacity < needed + MIN_CELL_CAPACITY {
-		return Err(TxBuildError::InsufficientFunds {
-			need: (needed + MIN_CELL_CAPACITY) as f64 / 1e8,
-			have: capacity as f64 / 1e8,
-		});
-	}
-	Ok((inputs, capacity))
-}
 
 #[cfg(test)]
 mod tests {

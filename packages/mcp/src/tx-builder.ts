@@ -377,13 +377,20 @@ export function encodeIdentityData(
 	pubkey: Buffer,
 	spendingLimitShannons: bigint,
 	dailyLimitShannons: bigint,
+	parentLockArgs?: Buffer,
+	revenueShareBps?: number,
 ): Buffer {
 	if (pubkey.length !== 33) throw new Error('pubkey must be 33 bytes (compressed)');
-	const buf = Buffer.alloc(50);
-	buf[0] = 0; // version
+	const buf = Buffer.alloc(88);
+	buf[0] = 0;
 	pubkey.copy(buf, 1);
 	buf.writeBigUInt64LE(spendingLimitShannons, 34);
 	buf.writeBigUInt64LE(dailyLimitShannons, 42);
+	if (parentLockArgs) {
+		if (parentLockArgs.length !== 20) throw new Error('parent_lock_args must be 20 bytes');
+		parentLockArgs.copy(buf, 50);
+	}
+	buf.writeUInt16LE(revenueShareBps ?? 0, 70);
 	return buf;
 }
 

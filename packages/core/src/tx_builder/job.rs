@@ -14,6 +14,7 @@ use super::molecule::compute_raw_tx_hash;
 use super::signing::{
 	inject_witness, placeholder_witness, placeholder_witness_with_input_type, sign_tx_with_witness,
 };
+use super::{gather_fee_inputs, our_lock, placeholder_witnesses};
 
 pub const STATUS_OPEN: u8 = 0;
 pub const STATUS_RESERVED: u8 = 1;
@@ -137,49 +138,6 @@ async fn fetch_job_cell(
 	Ok((capacity, data))
 }
 
-/// Only uses plain cells (no type script) to avoid UTXO conflicts with typed cell inputs
-/// (job, reputation, pool, identity) in the same transaction.
-async fn gather_fee_inputs(
-	state: &AppState,
-	needed: u64,
-) -> Result<(Vec<Value>, u64), TxBuildError> {
-	let our_lock = Script {
-		code_hash: SECP256K1_CODE_HASH.into(),
-		hash_type: SECP256K1_HASH_TYPE.into(),
-		args: state.lock_args.clone(),
-	};
-	let cells = state.ckb.get_cells_by_lock(&our_lock, 200).await?;
-
-	let mut inputs = Vec::new();
-	let mut capacity: u64 = 0;
-	for cell in &cells.objects {
-		if cell.output.type_script.is_some() {
-			continue;
-		}
-		let cap = parse_capacity_hex(&cell.output.capacity)?;
-		inputs.push(json!({ "previous_output": cell.out_point, "since": "0x0" }));
-		capacity += cap;
-		if capacity >= needed + MIN_PAYMENT_CELL {
-			break;
-		}
-	}
-	if capacity < needed + MIN_PAYMENT_CELL {
-		return Err(TxBuildError::InsufficientFunds {
-			need: (needed + MIN_PAYMENT_CELL) as f64 / 1e8,
-			have: capacity as f64 / 1e8,
-		});
-	}
-	Ok((inputs, capacity))
-}
-
-fn our_lock(state: &AppState) -> Script {
-	Script {
-		code_hash: SECP256K1_CODE_HASH.into(),
-		hash_type: SECP256K1_HASH_TYPE.into(),
-		args: state.lock_args.clone(),
-	}
-}
-
 async fn sign_and_finalize(
 	state: &AppState,
 	mut tx: Value,
@@ -200,19 +158,6 @@ async fn sign_and_finalize(
 	let signature = sign_tx_with_witness(&tx_hash, &state.private_key, &first_witness, witness_count)?;
 	inject_witness(&mut tx, &signature);
 	Ok((tx, tx_hash))
-}
-
-fn placeholder_witnesses(count: usize) -> Vec<Value> {
-	let ph = format!("0x{}", hex::encode(placeholder_witness()));
-	(0..count)
-		.map(|i| {
-			if i == 0 {
-				serde_json::Value::String(ph.clone())
-			} else {
-				serde_json::Value::String("0x".into())
-			}
-		})
-		.collect()
 }
 
 pub async fn build_post_job(
@@ -510,7 +455,12 @@ pub async fn build_complete_job(
 	}
 
 	let reward_shannons = u64::from_le_bytes(job_data[42..50].try_into().unwrap());
-	let poster_refund = job_capacity - reward_shannons;
+	let poster_refund = job_capacity.checked_sub(reward_shannons).ok_or_else(|| {
+		TxBuildError::InsufficientCapacity {
+			need: reward_shannons,
+			have: job_capacity,
+		}
+	})?;
 
 	if reward_shannons < MIN_PAYMENT_CELL {
 		return Err(TxBuildError::InsufficientCapacity {
@@ -553,14 +503,17 @@ pub async fn build_complete_job(
 	let (worker_amount, parent_share) = compute_revenue_split(reward_shannons, &identity);
 
 	let memo_cost = if result_hash.is_some() { RESULT_MEMO_CAPACITY } else { 0 };
-	let poster_refund_after_fee = poster_refund - ESTIMATED_FEE - memo_cost;
+	let poster_refund_after_fee = poster_refund
+		.checked_sub(ESTIMATED_FEE)
+		.and_then(|v| v.checked_sub(memo_cost))
+		.ok_or_else(|| TxBuildError::InsufficientCapacity {
+			need: ESTIMATED_FEE + memo_cost,
+			have: poster_refund,
+		})?;
 
 	let inputs = vec![json!({ "previous_output": { "tx_hash": job_tx_hash, "index": format!("{:#x}", job_index) }, "since": "0x0" })];
 
-	let mut witnesses: Vec<Value> = vec![serde_json::Value::String(first_witness_hex)];
-	for _ in 1..inputs.len() {
-		witnesses.push(serde_json::Value::String("0x".into()));
-	}
+	let witnesses: Vec<Value> = vec![serde_json::Value::String(first_witness_hex)];
 
 	let mut outputs = vec![
 		json!({ "capacity": format!("{:#x}", worker_amount), "lock": worker_lock, "type": null }),

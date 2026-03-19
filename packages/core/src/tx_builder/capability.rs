@@ -3,21 +3,17 @@ use serde_json::{json, Value};
 use crate::{
 	ckb_client::Script,
 	errors::TxBuildError,
-	state::{
-		parse_capacity_hex, AppState, SECP256K1_CODE_HASH, SECP256K1_DEP_TX_HASH,
-		SECP256K1_HASH_TYPE,
-	},
+	state::{parse_capacity_hex, AppState, SECP256K1_DEP_TX_HASH},
 };
 
 use super::molecule::compute_raw_tx_hash;
-use super::signing::{inject_witness, placeholder_witness, sign_tx};
+use super::signing::{inject_witness, sign_tx};
 
 const ESTIMATED_FEE: u64 = 2_000_000;
 // Minimum capacity for a capability NFT cell:
 //   cap(8) + lock(53) + type(33) + data(54 + proof_bytes) ≈ 150+ bytes.
 //   Use 200 CKB as safe minimum (covers ~200 bytes of proof data).
 const CAP_NFT_CELL_MIN: u64 = 200 * 100_000_000;
-const MIN_CELL_CAPACITY: u64 = 61 * 100_000_000;
 
 fn cap_nft_type_env() -> Result<(String, String), TxBuildError> {
 	let code_hash = std::env::var("CAP_NFT_TYPE_CODE_HASH").map_err(|_| {
@@ -35,26 +31,7 @@ fn cap_nft_type_env() -> Result<(String, String), TxBuildError> {
 	Ok((code_hash, dep_tx_hash))
 }
 
-fn our_lock(state: &AppState) -> Script {
-	Script {
-		code_hash: SECP256K1_CODE_HASH.into(),
-		hash_type: SECP256K1_HASH_TYPE.into(),
-		args: state.lock_args.clone(),
-	}
-}
-
-fn placeholder_witnesses(count: usize) -> Vec<Value> {
-	let ph = format!("0x{}", hex::encode(placeholder_witness()));
-	(0..count)
-		.map(|i| {
-			if i == 0 {
-				serde_json::Value::String(ph.clone())
-			} else {
-				serde_json::Value::String("0x".into())
-			}
-		})
-		.collect()
-}
+use super::{our_lock, placeholder_witnesses, MIN_CELL_CAPACITY};
 
 /// Layout (54+ bytes):
 ///   [0]       version = 0

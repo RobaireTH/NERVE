@@ -4,18 +4,14 @@ use serde_json::{json, Value};
 use crate::{
 	ckb_client::Script,
 	errors::TxBuildError,
-	state::{
-		parse_capacity_hex, AppState, SECP256K1_CODE_HASH, SECP256K1_DEP_TX_HASH,
-		SECP256K1_HASH_TYPE,
-	},
+	state::{parse_capacity_hex, AppState, SECP256K1_CODE_HASH, SECP256K1_DEP_TX_HASH, SECP256K1_HASH_TYPE},
 };
 
 use super::identity::calculate_type_id;
 use super::molecule::compute_raw_tx_hash;
-use super::signing::{inject_witness, placeholder_witness, sign_tx};
+use super::signing::{inject_witness, sign_tx};
 
 const ESTIMATED_FEE: u64 = 2_000_000;
-const MIN_CELL_CAPACITY: u64 = 61 * 100_000_000;
 // Minimum capacity for a badge cell:
 //   cap(8) + lock(53) + type(33 + 60 args) + data(34) = 188 bytes → 188 CKB.
 const BADGE_CELL_CAPACITY: u64 = 188 * 100_000_000;
@@ -35,26 +31,7 @@ fn dob_badge_env() -> Result<(String, String), TxBuildError> {
 	Ok((code_hash, dep_tx_hash))
 }
 
-fn our_lock(state: &AppState) -> Script {
-	Script {
-		code_hash: SECP256K1_CODE_HASH.into(),
-		hash_type: SECP256K1_HASH_TYPE.into(),
-		args: state.lock_args.clone(),
-	}
-}
-
-fn placeholder_witnesses(count: usize) -> Vec<Value> {
-	let ph = format!("0x{}", hex::encode(placeholder_witness()));
-	(0..count)
-		.map(|i| {
-			if i == 0 {
-				serde_json::Value::String(ph.clone())
-			} else {
-				serde_json::Value::String("0x".into())
-			}
-		})
-		.collect()
-}
+use super::{our_lock, placeholder_witnesses, MIN_CELL_CAPACITY};
 
 /// Computes the event_id_hash from a job's outpoint: blake2b(tx_hash || index_u64_le)[..20].
 pub fn compute_event_id_hash(job_tx_hash: &[u8; 32], job_index: u64) -> [u8; 20] {
