@@ -330,13 +330,18 @@ router.get('/join', (_req, res) => {
 	const ckbRpc = process.env.CKB_RPC_URL ?? 'https://testnet.ckb.dev/rpc';
 	const ckbIndexer = process.env.CKB_INDEXER_URL ?? 'https://testnet.ckb.dev/indexer';
 
-	// Collect all deployed contract code hashes.
+	// Collect all deployed contract references (code hashes and dep tx hashes).
 	const contracts: Record<string, string | undefined> = {
 		AGENT_IDENTITY_TYPE_CODE_HASH: AGENT_TYPE_CODE_HASH || undefined,
+		AGENT_IDENTITY_DEP_TX_HASH: process.env.AGENT_IDENTITY_DEP_TX_HASH || undefined,
 		REPUTATION_TYPE_CODE_HASH: REP_TYPE_CODE_HASH || undefined,
+		REPUTATION_DEP_TX_HASH: process.env.REPUTATION_DEP_TX_HASH || undefined,
 		CAP_NFT_TYPE_CODE_HASH: CAP_NFT_TYPE_CODE_HASH || undefined,
+		CAP_NFT_DEP_TX_HASH: process.env.CAP_NFT_DEP_TX_HASH || undefined,
 		JOB_CELL_TYPE_CODE_HASH: process.env.JOB_CELL_TYPE_CODE_HASH || undefined,
+		JOB_CELL_DEP_TX_HASH: process.env.JOB_CELL_DEP_TX_HASH || undefined,
 		DOB_BADGE_CODE_HASH: process.env.DOB_BADGE_CODE_HASH || undefined,
+		DOB_BADGE_DEP_TX_HASH: process.env.DOB_BADGE_DEP_TX_HASH || undefined,
 	};
 
 	// Strip undefined entries.
