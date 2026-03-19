@@ -109,8 +109,9 @@ git clone https://github.com/RobaireTH/NERVE.git
 cd NERVE
 cp .env.example .env
 # Edit .env — at minimum set AGENT_PRIVATE_KEY.
-# Generate a key: openssl rand -hex 32
-# Fund the corresponding address from faucet.nervos.org.
+# Testnet: generate a fresh key with `openssl rand -hex 32`,
+#          then fund the address from faucet.nervos.org.
+# Mainnet: use a key that already controls funded CKB cells.
 ```
 
 #### 2. Check prerequisites
