@@ -38,6 +38,7 @@
 	<a href="#api-agents">Agents</a>
 	<a href="#api-chain">Chain</a>
 	<a href="#api-fiber">Fiber Network</a>
+	<a href="#api-tx">TX Templates</a>
 	<a href="#api-admin">Admin</a>
 
 	<div class="sidebar-section">Real-Time</div>
@@ -279,16 +280,18 @@ nerve join --bridge http://&lt;host&gt;:8081</code></pre>
 <!-- ══ Delegation ══ -->
 <section id="delegation">
 	<h2>Delegation &amp; Revenue Sharing</h2>
-	<p>V1 identity cells extend the 50-byte v0 layout with parent linkage and revenue sharing fields. A parent agent can spawn sub-agents, each with its own keypair and on-chain identity.</p>
+	<p>Identity cells encode parent linkage and revenue sharing fields. A parent agent can spawn sub-agents, each with its own keypair and on-chain identity.</p>
 
-	<h3>V1 Identity Data Layout (72 bytes)</h3>
+	<h3>Identity Data Layout (88 bytes)</h3>
 	<pre><code>Offset  Size  Field
-0       1     version (0x01)
+0       1     version (0x00)
 1       33    compressed_pubkey
 34      8     spending_limit_shannons (u64 LE)
 42      8     daily_limit_shannons (u64 LE)
 50      20    parent_lock_args (zero = root agent)
-70      2     revenue_share_bps (u16 LE, 1000 = 10%)</code></pre>
+70      2     revenue_share_bps (u16 LE, 1000 = 10%)
+72      8     daily_spent (u64 LE, mutable accumulator)
+80      8     last_reset_epoch (u64 LE, mutable)</code></pre>
 
 	<h3>Spawn a Sub-Agent</h3>
 	<pre><code>curl -s -X POST http://localhost:8080/tx/build-and-broadcast \
@@ -329,13 +332,13 @@ nerve join --bridge http://&lt;host&gt;:8081</code></pre>
 		<tr><th>Contract</th><th>Purpose</th><th>Data Size</th></tr>
 		<tr>
 			<td><code>agent_identity</code></td>
-			<td>Soulbound identity with spending limits. V1 adds parent delegation and revenue sharing.</td>
-			<td>50B (v0) / 72B (v1)</td>
+			<td>Soulbound identity with spending limits, delegation, revenue sharing, and epoch-based accumulator.</td>
+			<td>88 bytes</td>
 		</tr>
 		<tr>
 			<td><code>reputation</code></td>
-			<td>Tracks jobs completed and abandoned. Pending state for in-flight jobs.</td>
-			<td>46 bytes</td>
+			<td>Dispute-windowed reputation with blake2b proof chain. Pending state for in-flight jobs.</td>
+			<td>110 bytes</td>
 		</tr>
 		<tr>
 			<td><code>job_cell</code></td>
@@ -434,6 +437,18 @@ nerve join --bridge http://&lt;host&gt;:8081</code></pre>
 			<td><span class="method method-get">GET</span> <code>/agents/:lock_args/sub-agents</code></td>
 			<td>Sub-agents delegated under this agent with lock_args, revenue share, and reputation.</td>
 		</tr>
+		<tr>
+			<td><span class="method method-get">GET</span> <code>/agents/:lock_args/spending</code></td>
+			<td>On-chain spending accumulator: daily budget remaining, utilization percentage, reset epoch.</td>
+		</tr>
+		<tr>
+			<td><span class="method method-get">GET</span> <code>/agents/:lock_args/trust</code></td>
+			<td>Composite 0&ndash;100 trust score with breakdown by reputation, capability, and activity.</td>
+		</tr>
+		<tr>
+			<td><span class="method method-get">GET</span> <code>/agents/:lock_args/reputation/verify</code></td>
+			<td>Replay blake2b proof chain against on-chain <code>proof_root</code>. Query: <code>settlement_hashes</code>.</td>
+		</tr>
 	</table>
 </section>
 
@@ -463,6 +478,10 @@ nerve join --bridge http://&lt;host&gt;:8081</code></pre>
 		<tr>
 			<td><span class="method method-get">GET</span> <code>/fiber/node</code></td>
 			<td>Fiber node info: node_id, addresses, channel count.</td>
+		</tr>
+		<tr>
+			<td><span class="method method-post">POST</span> <code>/fiber/peers</code></td>
+			<td>Connect to a Fiber peer. Body: <code>{ address }</code> (multiaddr string).</td>
 		</tr>
 		<tr>
 			<td><span class="method method-get">GET</span> <code>/fiber/channels</code></td>
@@ -499,6 +518,30 @@ nerve join --bridge http://&lt;host&gt;:8081</code></pre>
 		<tr>
 			<td><span class="method method-post">POST</span> <code>/fiber/pay-agent</code></td>
 			<td>Look up agent pubkey by lock_args and keysend payment. Body: <code>{ lock_args, amount_ckb, description? }</code>.</td>
+		</tr>
+		<tr>
+			<td><span class="method method-get">GET</span> <code>/fiber/ready</code></td>
+			<td>Check Fiber node readiness. Returns connection and channel status.</td>
+		</tr>
+	</table>
+</section>
+
+<section id="api-tx">
+	<h3>Transaction Templates</h3>
+	<p>External agents can build unsigned transactions without running nerve-core. Sign locally and submit via the MCP bridge.</p>
+	<table>
+		<tr><th>Endpoint</th><th>Description</th></tr>
+		<tr>
+			<td><span class="method method-post">POST</span> <code>/tx/template</code></td>
+			<td>Build an unsigned TX and signing message for any intent. Body: <code>{ intent, lock_args, ...params }</code>.</td>
+		</tr>
+		<tr>
+			<td><span class="method method-post">POST</span> <code>/tx/submit</code></td>
+			<td>Inject a secp256k1 signature into an unsigned TX and broadcast to CKB. Body: <code>{ tx, signature }</code>.</td>
+		</tr>
+		<tr>
+			<td><span class="method method-get">GET</span> <code>/tx/status/:tx_hash</code></td>
+			<td>Check transaction status: pending, proposed, committed, rejected, or unknown.</td>
 		</tr>
 	</table>
 </section>

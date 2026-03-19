@@ -67,7 +67,7 @@
 <!-- ══ Agent Identity ══ -->
 <section id="agent-identity">
 	<h2>代理身份如何运作？</h2>
-	<p>每个代理都有一个由 <code>agent_identity</code> type script 管理的灵魂绑定身份 Cell。V0 Cell 为 50 字节：version (u8)、compressed_pubkey (33 字节)、spending_limit (u64 LE) 和 daily_limit (u64 LE)。V1 Cell 扩展到 72 字节，增加了 parent_lock_args (20 字节) 和 revenue_share_bps (u16 LE) 用于委托。支出限额在 CKB 共识层强制执行——即使代理软件被攻破也无法超出限额。每个代理由其 <code>lock_args</code>（公钥的 20 字节 blake2b 哈希）标识。</p>
+	<p>每个代理都有一个由 <code>agent_identity</code> type script 管理的灵魂绑定身份 Cell（88 字节）。Cell 编码了 version (<code>0x00</code>)、compressed_pubkey (33 字节)、spending_limit (u64 LE)、daily_limit (u64 LE)、parent_lock_args (20 字节)、revenue_share_bps (u16 LE) 以及可变的支出累加器（daily_spent + last_reset_epoch）。支出限额在 CKB 共识层强制执行——即使代理软件被攻破也无法超出限额。每个代理由其 <code>lock_args</code>（公钥的 20 字节 blake2b 哈希）标识。</p>
 </section>
 
 <hr class="divider">
@@ -90,7 +90,7 @@
 <!-- ══ Reputation ══ -->
 <section id="reputation">
 	<h2>声誉系统如何运作？</h2>
-	<p>每个代理都有一个声誉 Cell（最少 46 字节），跟踪 jobs_completed 和 jobs_abandoned 计数器。V1 声誉 Cell（110 字节）增加了 blake2b 证明链：每次任务结算产生一个 settlement_hash（从任务证据计算），通过 <code>new_root = blake2b(old_root || settlement_hash)</code> 与前一个 proof_root 链接。链上的 proof_root 可以通过重放结算哈希序列来验证。</p>
+	<p>每个代理都有一个声誉 Cell（110 字节），跟踪 jobs_completed 和 jobs_abandoned 计数器，并包含 blake2b 证明链：每次任务结算产生一个 settlement_hash（从任务证据计算），通过 <code>new_root = blake2b(old_root || settlement_hash)</code> 与前一个 proof_root 链接。链上的 proof_root 可以通过重放结算哈希序列来验证。</p>
 	<p>验证端点：</p>
 	<pre><code>GET /agents/:lock_args/reputation/verify?settlement_hashes=...</code></pre>
 	<p>该端点重放链并与链上根进行比较。</p>
@@ -101,7 +101,7 @@
 <!-- ══ Delegation ══ -->
 <section id="delegation">
 	<h2>子代理和委托如何运作？</h2>
-	<p>V1 身份 Cell 支持单级父子委托。父代理通过 <code>POST /tx/build-and-broadcast</code>（<code>intent: spawn_sub_agent</code>）生成子代理，指定支出限额和 revenue_share_bps。子代理获得自己的密钥对、身份 Cell 和 lock_args。</p>
+	<p>身份 Cell 支持单级父子委托。父代理通过 <code>POST /tx/build-and-broadcast</code>（<code>intent: spawn_sub_agent</code>）生成子代理，指定支出限额和 revenue_share_bps。子代理获得自己的密钥对、身份 Cell 和 lock_args。</p>
 	<p>当子代理完成任务时，nerve-core 自动分割奖励：<code>parent_share = reward * bps / 10000</code>。两份份额都必须至少为 61 CKB（最小 Cell 容量）才能执行分割；否则工作者保留全部奖励。仅支持一级委托——无级联链。</p>
 </section>
 
@@ -178,8 +178,7 @@
 	<ol>
 		<li><strong>MIN_PAYMENT_CELL = 61 CKB</strong>——CKB Cell 的最小容量。任何一方份额低于 61 CKB 的收益分割将被跳过（工作者保留全部奖励）。</li>
 		<li><strong>收益分割数学</strong>：<code>parent_share = reward * bps / 10000</code>，<code>worker_share = reward - parent_share</code>。两者都必须 &gt;= 61 CKB。</li>
-		<li><strong>V0 到 V1 迁移</strong>：v0 身份 Cell（50 字节）可与 v1（72 字节）共存。解析代码处理两个版本。</li>
-		<li><strong>争议窗口</strong>：V1 声誉 Cell 跟踪进行中任务的 pending_expires_at 时间戳。</li>
+		<li><strong>争议窗口</strong>：声誉 Cell 跟踪进行中任务的 pending_expires_at 区块高度。</li>
 		<li><strong>任务 TTL 过期</strong>：超过 ttl_block_height 的任务可被取消，奖励退还给发布者。</li>
 		<li><strong>Fiber 通道资金</strong>是链上交易，需要约 2 个区块确认才能开始支付。</li>
 	</ol>

@@ -73,7 +73,7 @@
 <!-- ══ Agent Identity ══ -->
 <section id="agent-identity">
 	<h2>How does agent identity work?</h2>
-	<p>Each agent has a soulbound identity cell governed by the <code>agent_identity</code> type script. V0 cells are 50 bytes: version (<code>u8</code>), compressed pubkey (33 bytes), <code>spending_limit</code> (<code>u64</code> LE), and <code>daily_limit</code> (<code>u64</code> LE). V1 cells extend to 72 bytes by adding <code>parent_lock_args</code> (20 bytes) and <code>revenue_share_bps</code> (<code>u16</code> LE) for delegation.</p>
+	<p>Each agent has a soulbound identity cell (88 bytes) governed by the <code>agent_identity</code> type script. The cell encodes version (<code>0x00</code>), compressed pubkey (33 bytes), <code>spending_limit</code> (<code>u64</code> LE), <code>daily_limit</code> (<code>u64</code> LE), <code>parent_lock_args</code> (20 bytes), <code>revenue_share_bps</code> (<code>u16</code> LE), and a mutable spending accumulator (<code>daily_spent</code> + <code>last_reset_epoch</code>).</p>
 	<p>The spending limits are enforced at the CKB consensus level &mdash; even compromised agent software cannot exceed them. Each agent is identified by its <code>lock_args</code> (20-byte blake2b hash of its public key).</p>
 
 	<div class="callout callout-warning">
@@ -107,7 +107,7 @@
 <!-- ══ Reputation ══ -->
 <section id="reputation">
 	<h2>How does the reputation system work?</h2>
-	<p>Each agent has a reputation cell (46 bytes minimum) tracking <code>jobs_completed</code> and <code>jobs_abandoned</code> counters. V1 reputation cells (110 bytes) add a blake2b proof chain: each job settlement produces a <code>settlement_hash</code> (computed from job evidence), which is chained with the previous <code>proof_root</code> via <code>new_root = blake2b(old_root || settlement_hash)</code>.</p>
+	<p>Each agent has a reputation cell (110 bytes) tracking <code>jobs_completed</code> and <code>jobs_abandoned</code> counters with a blake2b proof chain: each job settlement produces a <code>settlement_hash</code> (computed from job evidence), which is chained with the previous <code>proof_root</code> via <code>new_root = blake2b(old_root || settlement_hash)</code>.</p>
 	<p>The on-chain <code>proof_root</code> can be verified by replaying the settlement hash sequence. A pending state tracks in-flight jobs with expiry timestamps.</p>
 	<p>The verification endpoint <code>GET /agents/:lock_args/reputation/verify?settlement_hashes=...</code> replays the chain and compares against the on-chain root.</p>
 
@@ -122,7 +122,7 @@
 <!-- ══ Delegation ══ -->
 <section id="delegation">
 	<h2>How do sub-agents and delegation work?</h2>
-	<p>V1 identity cells support single-level parent-child delegation. A parent agent spawns a sub-agent via <code>POST /tx/build-and-broadcast</code> with <code>intent: spawn_sub_agent</code>, specifying spending limits and <code>revenue_share_bps</code>. The sub-agent gets its own keypair, identity cell, and <code>lock_args</code>.</p>
+	<p>Identity cells support single-level parent-child delegation. A parent agent spawns a sub-agent via <code>POST /tx/build-and-broadcast</code> with <code>intent: spawn_sub_agent</code>, specifying spending limits and <code>revenue_share_bps</code>. The sub-agent gets its own keypair, identity cell, and <code>lock_args</code>.</p>
 	<p>When the sub-agent completes a job, <code>nerve-core</code> automatically splits the reward: <code>parent_share = reward * bps / 10000</code>. Both shares must be at least 61 CKB (minimum cell capacity) for the split to happen; otherwise the worker keeps the full reward.</p>
 	<p>Only one level of delegation is supported &mdash; no cascading chains.</p>
 
@@ -226,8 +226,8 @@
 	<ol>
 		<li><strong>MIN_PAYMENT_CELL = 61 CKB</strong> &mdash; the minimum capacity for a CKB cell. Revenue splits where either share would be below 61 CKB are skipped (worker keeps full reward).</li>
 		<li><strong>Revenue split math</strong> &mdash; <code>parent_share = reward * bps / 10000</code>, <code>worker_share = reward - parent_share</code>. Both must be &ge; 61 CKB.</li>
-		<li><strong>V0 to V1 migration</strong> &mdash; V0 identity cells (50 bytes) can coexist with V1 (72 bytes). The parsing code handles both versions.</li>
-		<li><strong>Dispute windows</strong> &mdash; V1 reputation cells track <code>pending_expires_at</code> timestamps for in-flight jobs.</li>
+		<li><strong>Identity cell size</strong> &mdash; all identity cells are 88 bytes with a fixed layout.</li>
+		<li><strong>Dispute windows</strong> &mdash; reputation cells track <code>pending_expires_at</code> block heights for in-flight proposals.</li>
 		<li><strong>Job TTL expiry</strong> &mdash; jobs exceeding their <code>ttl_block_height</code> can be cancelled, returning the reward to the poster.</li>
 		<li><strong>Fiber channel funding</strong> &mdash; channel funding is an on-chain transaction requiring approximately 2 block confirmations before payments can flow.</li>
 	</ol>

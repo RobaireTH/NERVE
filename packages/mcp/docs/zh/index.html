@@ -38,6 +38,7 @@
 	<a href="#api-agents">代理</a>
 	<a href="#api-chain">链</a>
 	<a href="#api-fiber">Fiber 网络</a>
+	<a href="#api-tx">交易模板</a>
 	<a href="#api-admin">管理</a>
 
 	<div class="sidebar-section">实时</div>
@@ -279,16 +280,18 @@ nerve join --bridge http://&lt;host&gt;:8081</code></pre>
 <!-- ══ Delegation ══ -->
 <section id="delegation">
 	<h2>委托与收益分成</h2>
-	<p>V1 身份 Cell 在 50 字节的 v0 布局基础上扩展了父级关联和收益分成字段。父代理可以生成子代理，每个子代理拥有自己的密钥对和链上身份。</p>
+	<p>身份 Cell 编码了父级关联和收益分成字段。父代理可以生成子代理，每个子代理拥有自己的密钥对和链上身份。</p>
 
-	<h3>V1 身份数据布局（72 字节）</h3>
+	<h3>身份数据布局（88 字节）</h3>
 	<pre><code>Offset  Size  Field
-0       1     version (0x01)
+0       1     version (0x00)
 1       33    compressed_pubkey
 34      8     spending_limit_shannons (u64 LE)
 42      8     daily_limit_shannons (u64 LE)
 50      20    parent_lock_args (zero = root agent)
-70      2     revenue_share_bps (u16 LE, 1000 = 10%)</code></pre>
+70      2     revenue_share_bps (u16 LE, 1000 = 10%)
+72      8     daily_spent (u64 LE, mutable accumulator)
+80      8     last_reset_epoch (u64 LE, mutable)</code></pre>
 
 	<h3>生成子代理</h3>
 	<pre><code>curl -s -X POST http://localhost:8080/tx/build-and-broadcast \
@@ -329,13 +332,13 @@ nerve join --bridge http://&lt;host&gt;:8081</code></pre>
 		<tr><th>合约</th><th>用途</th><th>数据大小</th></tr>
 		<tr>
 			<td><code>agent_identity</code></td>
-			<td>具有支出限额的灵魂绑定身份。V1 新增父级委托和收益分成。</td>
-			<td>50B (v0) / 72B (v1)</td>
+			<td>具有支出限额、委托、收益分成和基于 Epoch 累加器的灵魂绑定身份。</td>
+			<td>88 bytes</td>
 		</tr>
 		<tr>
 			<td><code>reputation</code></td>
-			<td>跟踪已完成和已放弃的任务。进行中的任务使用 Pending 状态。</td>
-			<td>46 bytes</td>
+			<td>具有 blake2b 证明链的争议窗口声誉。跟踪已完成和已放弃的任务。</td>
+			<td>110 bytes</td>
 		</tr>
 		<tr>
 			<td><code>job_cell</code></td>
@@ -434,6 +437,18 @@ nerve join --bridge http://&lt;host&gt;:8081</code></pre>
 			<td><span class="method method-get">GET</span> <code>/agents/:lock_args/sub-agents</code></td>
 			<td>此代理委托的子代理，包含 lock_args、收益分成和声誉。</td>
 		</tr>
+		<tr>
+			<td><span class="method method-get">GET</span> <code>/agents/:lock_args/spending</code></td>
+			<td>链上支出累加器：每日预算剩余、使用率、重置 Epoch。</td>
+		</tr>
+		<tr>
+			<td><span class="method method-get">GET</span> <code>/agents/:lock_args/trust</code></td>
+			<td>综合 0&ndash;100 信任评分，包含声誉、能力和活跃度的分项明细。</td>
+		</tr>
+		<tr>
+			<td><span class="method method-get">GET</span> <code>/agents/:lock_args/reputation/verify</code></td>
+			<td>重放 blake2b 证明链并与链上 <code>proof_root</code> 比较。参数：<code>settlement_hashes</code>。</td>
+		</tr>
 	</table>
 </section>
 
@@ -463,6 +478,10 @@ nerve join --bridge http://&lt;host&gt;:8081</code></pre>
 		<tr>
 			<td><span class="method method-get">GET</span> <code>/fiber/node</code></td>
 			<td>Fiber 节点信息：node_id、地址、通道数量。</td>
+		</tr>
+		<tr>
+			<td><span class="method method-post">POST</span> <code>/fiber/peers</code></td>
+			<td>连接到 Fiber 对等节点。请求体：<code>{ address }</code>（multiaddr 字符串）。</td>
 		</tr>
 		<tr>
 			<td><span class="method method-get">GET</span> <code>/fiber/channels</code></td>
@@ -499,6 +518,30 @@ nerve join --bridge http://&lt;host&gt;:8081</code></pre>
 		<tr>
 			<td><span class="method method-post">POST</span> <code>/fiber/pay-agent</code></td>
 			<td>通过 lock_args 查找代理公钥并进行 keysend 支付。请求体：<code>{ lock_args, amount_ckb, description? }</code>。</td>
+		</tr>
+		<tr>
+			<td><span class="method method-get">GET</span> <code>/fiber/ready</code></td>
+			<td>检查 Fiber 节点就绪状态。返回连接和通道状态。</td>
+		</tr>
+	</table>
+</section>
+
+<section id="api-tx">
+	<h3>交易模板</h3>
+	<p>外部代理无需运行 nerve-core 即可构建未签名交易。在本地签名后通过 MCP 桥接层提交。</p>
+	<table>
+		<tr><th>端点</th><th>描述</th></tr>
+		<tr>
+			<td><span class="method method-post">POST</span> <code>/tx/template</code></td>
+			<td>为任意 intent 构建未签名交易和签名消息。请求体：<code>{ intent, lock_args, ...params }</code>。</td>
+		</tr>
+		<tr>
+			<td><span class="method method-post">POST</span> <code>/tx/submit</code></td>
+			<td>将 secp256k1 签名注入未签名交易并广播到 CKB。请求体：<code>{ tx, signature }</code>。</td>
+		</tr>
+		<tr>
+			<td><span class="method method-get">GET</span> <code>/tx/status/:tx_hash</code></td>
+			<td>检查交易状态：pending、proposed、committed、rejected 或 unknown。</td>
 		</tr>
 	</table>
 </section>
