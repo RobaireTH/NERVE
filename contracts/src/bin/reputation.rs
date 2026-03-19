@@ -9,8 +9,7 @@
 //
 // State machine:
 //   Idle (pending_type=0) → Proposed (pending_type=1 or 2): propose a completed/abandoned update
-//   Proposed → Finalized: increment counter, clear pending (requires dispute window elapsed)
-//   Proposed → Disputed: clear pending without incrementing (dispute wins)
+//   Proposed → Idle: increment counter, clear pending (requires dispute window elapsed)
 //
 // Dispute window enforcement:
 //   When finalizing (Proposed→Idle with counter increment), the consuming input's

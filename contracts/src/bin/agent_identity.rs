@@ -158,10 +158,7 @@ fn validate_creation() -> Result<(), i8> {
 	let has_parent = !parent_lock_args.iter().all(|&b| b == 0);
 
 	if has_parent {
-		if !verify_parent_in_inputs(parent_lock_args)? {
-			return Err(ERR_PARENT_NOT_SIGNED);
-		}
-		verify_spending_within_parent(parent_lock_args, spending_limit)?;
+		verify_parent_signed_and_within_limits(parent_lock_args, spending_limit)?;
 	}
 
 	Ok(())
@@ -186,14 +183,15 @@ fn validate_spending() -> Result<(), i8> {
 
 	let agent_lock_hash = load_cell_lock_hash(0, Source::GroupInput).map_err(sys_err)?;
 
-	let mut transferred_to_others: u64 = 0;
+	let mut agent_input_total: u64 = 0;
 	let mut idx = 0;
 	loop {
-		match load_cell_lock_hash(idx, Source::Output) {
+		match load_cell_lock_hash(idx, Source::Input) {
 			Ok(lock_hash) => {
-				if lock_hash != agent_lock_hash {
-					let cap = load_cell_capacity(idx, Source::Output).map_err(sys_err)?;
-					transferred_to_others = transferred_to_others.saturating_add(cap);
+				if lock_hash == agent_lock_hash {
+					let cap = load_cell_capacity(idx, Source::Input).map_err(sys_err)?;
+					agent_input_total =
+						agent_input_total.checked_add(cap).ok_or(ERR_INVALID_DATA)?;
 				}
 				idx += 1;
 			}
@@ -201,6 +199,25 @@ fn validate_spending() -> Result<(), i8> {
 			Err(e) => return Err(sys_err(e)),
 		}
 	}
+
+	let mut agent_output_total: u64 = 0;
+	idx = 0;
+	loop {
+		match load_cell_lock_hash(idx, Source::Output) {
+			Ok(lock_hash) => {
+				if lock_hash == agent_lock_hash {
+					let cap = load_cell_capacity(idx, Source::Output).map_err(sys_err)?;
+					agent_output_total =
+						agent_output_total.checked_add(cap).ok_or(ERR_INVALID_DATA)?;
+				}
+				idx += 1;
+			}
+			Err(SysError::IndexOutOfBound) => break,
+			Err(e) => return Err(sys_err(e)),
+		}
+	}
+
+	let transferred_to_others = agent_input_total.saturating_sub(agent_output_total);
 
 	if transferred_to_others > spending_limit {
 		return Err(ERR_SPENDING_LIMIT_EXCEEDED);
@@ -230,7 +247,7 @@ fn validate_daily_accumulator(
 
 	// Reset accumulator if the day window has changed.
 	let base_spent = if current_day != old_day { 0 } else { old_daily_spent };
-	let new_daily_spent = base_spent.saturating_add(transferred);
+	let new_daily_spent = base_spent.checked_add(transferred).ok_or(ERR_INVALID_DATA)?;
 
 	if new_daily_spent > daily_limit {
 		return Err(ERR_DAILY_LIMIT_EXCEEDED);
@@ -269,33 +286,16 @@ fn read_u16_le(bytes: &[u8]) -> Option<u16> {
 	Some(u16::from_le_bytes(arr))
 }
 
-/// Checks whether any transaction input has lock.args matching `parent_lock_args`.
-/// If an input matches, the parent's lock script was validated by consensus,
-/// which proves the parent signed this transaction.
-fn verify_parent_in_inputs(parent_lock_args: &[u8]) -> Result<bool, i8> {
-	let mut i = 0;
-	loop {
-		match load_cell_lock(i, Source::Input) {
-			Ok(lock) => {
-				if lock.args().raw_data().as_ref() == parent_lock_args {
-					return Ok(true);
-				}
-				i += 1;
-			}
-			Err(SysError::IndexOutOfBound) => break,
-			Err(e) => return Err(sys_err(e)),
-		}
-	}
-	Ok(false)
-}
-
-/// Verifies the child's spending_limit does not exceed the parent's.
-/// Scans cell_deps for a typed cell whose lock.args matches parent_lock_args,
-/// reads the parent's spending_limit from identity data, and compares.
-fn verify_spending_within_parent(
+/// Finds the parent identity cell in cell_deps, verifies the child's spending_limit
+/// does not exceed the parent's, and confirms a TX input carries the parent's full
+/// lock_hash (not just lock.args) to prevent spoofing with trivial lock scripts.
+fn verify_parent_signed_and_within_limits(
 	parent_lock_args: &[u8],
 	child_spending_limit: u64,
 ) -> Result<(), i8> {
+	let mut parent_lock_hash: Option<[u8; 32]> = None;
+	let mut parent_limit: Option<u64> = None;
+
 	let mut i = 0;
 	loop {
 		let data = match load_cell_data(i, Source::CellDep) {
@@ -305,7 +305,6 @@ fn verify_spending_within_parent(
 		};
 
 		if data.len() >= 88 && data[0] == 0 {
-			// Must have a type script to prevent spoofing with plain data cells.
 			let has_type = load_cell_type_hash(i, Source::CellDep)
 				.map_err(sys_err)?
 				.is_some();
@@ -314,21 +313,39 @@ fn verify_spending_within_parent(
 				continue;
 			}
 
-			// Check if this cell_dep's lock.args matches parent_lock_args.
 			let lock = load_cell_lock(i, Source::CellDep).map_err(sys_err)?;
 			if lock.args().raw_data().as_ref() == parent_lock_args {
-				let parent_spending =
-					read_u64_le(&data[34..42]).ok_or(ERR_INVALID_DATA)?;
-				if child_spending_limit > parent_spending {
-					return Err(ERR_SPENDING_EXCEEDS_PARENT);
-				}
-				return Ok(());
+				parent_lock_hash =
+					Some(load_cell_lock_hash(i, Source::CellDep).map_err(sys_err)?);
+				parent_limit =
+					Some(read_u64_le(&data[34..42]).ok_or(ERR_INVALID_DATA)?);
+				break;
 			}
 		}
 
 		i += 1;
 	}
 
-	// Parent identity cell not found in cell_deps.
-	Err(ERR_SPENDING_EXCEEDS_PARENT)
+	let parent_lh = parent_lock_hash.ok_or(ERR_SPENDING_EXCEEDS_PARENT)?;
+	let p_limit = parent_limit.ok_or(ERR_SPENDING_EXCEEDS_PARENT)?;
+
+	if child_spending_limit > p_limit {
+		return Err(ERR_SPENDING_EXCEEDS_PARENT);
+	}
+
+	let mut j = 0;
+	loop {
+		match load_cell_lock_hash(j, Source::Input) {
+			Ok(lh) => {
+				if lh == parent_lh {
+					return Ok(());
+				}
+				j += 1;
+			}
+			Err(SysError::IndexOutOfBound) => break,
+			Err(e) => return Err(sys_err(e)),
+		}
+	}
+
+	Err(ERR_PARENT_NOT_SIGNED)
 }

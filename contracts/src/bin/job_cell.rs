@@ -9,7 +9,7 @@
 //   Any → Expired (4): poster cancels (TTL-gated for non-Open states)
 //
 // Invariants:
-//   - Status can only advance by exactly one step, or jump to Expired (4).
+//   - Status can only advance by exactly one step (Open/Reserved/Claimed may jump to Expired).
 //   - poster_lock_args, reward, capability_hash, and ttl are immutable after creation.
 //   - On Open→Reserved, worker_lock_args must be non-zero.
 //   - On Open→Reserved, if ttl > 0, header_deps[0] must prove current_block < ttl.
@@ -151,7 +151,9 @@ fn validate_transition() -> Result<(), i8> {
 		(STATUS_OPEN, STATUS_RESERVED) => true,
 		(STATUS_RESERVED, STATUS_CLAIMED) => true,
 		(STATUS_CLAIMED, STATUS_COMPLETED) => true,
-		(_, STATUS_EXPIRED) => true,
+		(STATUS_OPEN, STATUS_EXPIRED)
+		| (STATUS_RESERVED, STATUS_EXPIRED)
+		| (STATUS_CLAIMED, STATUS_EXPIRED) => true,
 		_ => false,
 	};
 	if !valid_transition {
@@ -199,6 +201,9 @@ fn validate_transition() -> Result<(), i8> {
 	if old[2..22] != new[2..22] {
 		return Err(ERR_IMMUTABLE_FIELD_CHANGED);
 	}
+	if !(old_status == STATUS_OPEN && new_status == STATUS_RESERVED) && old[22..42] != new[22..42] {
+		return Err(ERR_IMMUTABLE_FIELD_CHANGED);
+	}
 	if old[42..50] != new[42..50] {
 		return Err(ERR_IMMUTABLE_FIELD_CHANGED);
 	}
@@ -209,6 +214,12 @@ fn validate_transition() -> Result<(), i8> {
 		return Err(ERR_IMMUTABLE_FIELD_CHANGED);
 	}
 	if old[90..] != new[90..] {
+		return Err(ERR_IMMUTABLE_FIELD_CHANGED);
+	}
+
+	if !(old_status == STATUS_OPEN && new_status == STATUS_RESERVED)
+		&& old[22..42] != new[22..42]
+	{
 		return Err(ERR_IMMUTABLE_FIELD_CHANGED);
 	}
 
@@ -279,20 +290,19 @@ fn verify_result_binding(old: &[u8]) -> Result<(), i8> {
 	Ok(())
 }
 
-/// Verifies that the total capacity in outputs NOT locked to the poster is >= reward.
-/// This ensures the poster cannot destroy a Claimed job cell without paying the worker.
+/// Verifies that outputs locked to the worker total >= reward_shannons.
 fn verify_settlement_outputs(old: &[u8]) -> Result<(), i8> {
-	let poster_lock_args = &old[2..22];
+	let worker_lock_args = &old[22..42];
 	let reward = read_u64_le(&old[42..50]).ok_or(ERR_INVALID_DATA)?;
 
-	let mut non_poster_total: u64 = 0;
+	let mut worker_total: u64 = 0;
 	let mut i = 0;
 	loop {
 		match load_cell_lock(i, Source::Output) {
 			Ok(lock) => {
-				if lock.args().raw_data().as_ref() != poster_lock_args {
+				if lock.args().raw_data().as_ref() == worker_lock_args {
 					let cap = load_cell_capacity(i, Source::Output).map_err(sys_err)?;
-					non_poster_total = non_poster_total.saturating_add(cap);
+					worker_total = worker_total.checked_add(cap).ok_or(ERR_INVALID_DATA)?;
 				}
 				i += 1;
 			}
@@ -301,7 +311,7 @@ fn verify_settlement_outputs(old: &[u8]) -> Result<(), i8> {
 		}
 	}
 
-	if non_poster_total < reward {
+	if worker_total < reward {
 		return Err(ERR_WORKER_UNDERPAID);
 	}
 
