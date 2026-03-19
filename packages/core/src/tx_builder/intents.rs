@@ -57,8 +57,8 @@ pub enum BuildRequest {
 		job_index: u32,
 		/// The worker's lock_args (0x-prefixed 20-byte hex) to receive the reward.
 		worker_lock_args: String,
-		/// Optional SHA-256 result hash (0x-prefixed 32-byte hex) for on-chain proof of work.
-		result_hash: Option<String>,
+		/// Raw UTF-8 result text. The builder computes the binding hash and proof witness.
+		result: Option<String>,
 	},
 	/// Cancel an Open/Reserved job: destroy the cell and reclaim capacity to poster.
 	CancelJob {
@@ -239,13 +239,9 @@ pub async fn build_and_sign(
 			Ok(BuildResult { tx_hash, tx, metadata: None })
 		}
 
-		BuildRequest::CompleteJob { job_tx_hash, job_index, worker_lock_args, result_hash } => {
-			let parsed_hash = result_hash
-				.as_deref()
-				.map(parse_hash_32)
-				.transpose()?;
+		BuildRequest::CompleteJob { job_tx_hash, job_index, worker_lock_args, result } => {
 			let (tx, tx_hash) =
-				build_complete_job(state, &job_tx_hash, job_index, &worker_lock_args, parsed_hash).await?;
+				build_complete_job(state, &job_tx_hash, job_index, &worker_lock_args, result).await?;
 			Ok(BuildResult { tx_hash, tx, metadata: None })
 		}
 

@@ -11,7 +11,9 @@ use crate::{
 };
 
 use super::molecule::compute_raw_tx_hash;
-use super::signing::{inject_witness, placeholder_witness, sign_tx};
+use super::signing::{
+	inject_witness, placeholder_witness, placeholder_witness_with_input_type, sign_tx_with_witness,
+};
 
 pub const STATUS_OPEN: u8 = 0;
 pub const STATUS_RESERVED: u8 = 1;
@@ -182,12 +184,20 @@ async fn sign_and_finalize(
 	state: &AppState,
 	mut tx: Value,
 ) -> Result<(Value, String), TxBuildError> {
-	let witness_count = tx["witnesses"]
+	let witnesses = tx["witnesses"]
 		.as_array()
-		.map(|a| a.len())
-		.unwrap_or(1);
+		.ok_or_else(|| TxBuildError::Signing("missing witnesses array".into()))?;
+	let witness_count = witnesses.len().max(1);
+
+	let first_hex = witnesses
+		.first()
+		.and_then(|v| v.as_str())
+		.unwrap_or("0x");
+	let first_witness = hex::decode(first_hex.trim_start_matches("0x"))
+		.map_err(|e| TxBuildError::Signing(format!("bad witness hex: {e}")))?;
+
 	let tx_hash = compute_raw_tx_hash(&tx)?;
-	let signature = sign_tx(&tx_hash, &state.private_key, witness_count)?;
+	let signature = sign_tx_with_witness(&tx_hash, &state.private_key, &first_witness, witness_count)?;
 	inject_witness(&mut tx, &signature);
 	Ok((tx, tx_hash))
 }
@@ -479,14 +489,15 @@ async fn find_worker_capability_nft(
 	)))
 }
 
-/// When `result_hash` is provided, an additional result memo cell is created under the worker's
-/// lock as on-chain proof of work. The memo capacity is deducted from the poster's refund.
+/// When `result` text is provided, computes the binding hash blake2b(description_hash || result_data),
+/// places the proof in witness input_type, and creates a result memo cell under the worker's lock.
+/// Jobs with a non-zero description_hash require a result; description-less jobs settle without one.
 pub async fn build_complete_job(
 	state: &AppState,
 	job_tx_hash: &str,
 	job_index: u32,
 	worker_lock_args: &str,
-	result_hash: Option<[u8; 32]>,
+	result: Option<String>,
 ) -> Result<(Value, String), TxBuildError> {
 	let (_, dep_tx_hash) = job_type_env()?;
 	let (job_capacity, job_data) = fetch_job_cell(state, job_tx_hash, job_index).await?;
@@ -508,32 +519,55 @@ pub async fn build_complete_job(
 		});
 	}
 
+	let desc_hash = if job_data.len() >= 122 { &job_data[90..122] } else { &[0u8; 32][..] };
+	let has_description = !desc_hash.iter().all(|&b| b == 0);
+
+	if has_description && result.is_none() {
+		return Err(TxBuildError::Rpc("result required for jobs with a description".into()));
+	}
+
+	let (result_hash, first_witness_hex) = if let Some(ref result_text) = result {
+		let result_bytes = result_text.as_bytes();
+		let mut preimage = Vec::with_capacity(32 + result_bytes.len());
+		preimage.extend_from_slice(desc_hash);
+		preimage.extend_from_slice(result_bytes);
+		let hash = blake2b_256(&preimage);
+
+		let mut proof = Vec::with_capacity(32 + result_bytes.len());
+		proof.extend_from_slice(&hash);
+		proof.extend_from_slice(result_bytes);
+
+		let witness = placeholder_witness_with_input_type(&proof);
+		(Some(hash), format!("0x{}", hex::encode(&witness)))
+	} else {
+		(None, format!("0x{}", hex::encode(placeholder_witness())))
+	};
+
 	let worker_lock = Script {
 		code_hash: SECP256K1_CODE_HASH.into(),
 		hash_type: SECP256K1_HASH_TYPE.into(),
 		args: worker_lock_args.into(),
 	};
 
-	// Revenue sharing: check if the worker is a v1 sub-agent with a parent.
 	let identity = fetch_worker_identity(state, worker_lock_args).await?;
 	let (worker_amount, parent_share) = compute_revenue_split(reward_shannons, &identity);
 
-	// Fee comes from the overhead reduction (poster_refund > 61 CKB; fee is ~0.01 CKB).
 	let memo_cost = if result_hash.is_some() { RESULT_MEMO_CAPACITY } else { 0 };
 	let poster_refund_after_fee = poster_refund - ESTIMATED_FEE - memo_cost;
 
 	let inputs = vec![json!({ "previous_output": { "tx_hash": job_tx_hash, "index": format!("{:#x}", job_index) }, "since": "0x0" })];
-	let witnesses = placeholder_witnesses(inputs.len());
+
+	let mut witnesses: Vec<Value> = vec![serde_json::Value::String(first_witness_hex)];
+	for _ in 1..inputs.len() {
+		witnesses.push(serde_json::Value::String("0x".into()));
+	}
 
 	let mut outputs = vec![
-		// Reward to worker (minus parent share if applicable).
 		json!({ "capacity": format!("{:#x}", worker_amount), "lock": worker_lock, "type": null }),
-		// Overhead refund to poster.
 		json!({ "capacity": format!("{:#x}", poster_refund_after_fee), "lock": our_lock(state), "type": null }),
 	];
 	let mut outputs_data = vec!["0x".to_string(), "0x".to_string()];
 
-	// Revenue share output for parent agent.
 	if let Some((parent_lock_args, parent_amount)) = &parent_share {
 		let parent_lock = Script {
 			code_hash: SECP256K1_CODE_HASH.into(),
@@ -548,7 +582,6 @@ pub async fn build_complete_job(
 		outputs_data.push("0x".to_string());
 	}
 
-	// Optional result memo cell under the worker's lock.
 	if let Some(hash) = result_hash {
 		let memo_data = encode_result_memo(&hash);
 		let memo_lock = Script {
