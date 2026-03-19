@@ -17,6 +17,7 @@ const MIN_CELL_CAPACITY = 61n * 100_000_000n;
 const IDENTITY_CELL_CAPACITY = 232n * 100_000_000n;
 const REP_CELL_CAPACITY = 172n * 100_000_000n;
 const JOB_CELL_OVERHEAD = 216n * 100_000_000n;
+const RESULT_MEMO_CAPACITY = 97n * 100_000_000n;
 const ESTIMATED_FEE = 2_000_000n;
 
 function ckbHash(data: Buffer): Buffer {
@@ -243,6 +244,22 @@ export function placeholderWitness(): Buffer {
 	return buf;
 }
 
+export function placeholderWitnessWithInputType(inputType: Buffer): Buffer {
+	const total = 89 + inputType.length;
+	const buf = Buffer.alloc(total);
+	let pos = 0;
+	buf.writeUInt32LE(total, pos); pos += 4;   // total_size
+	buf.writeUInt32LE(16, pos); pos += 4;      // offset_lock
+	buf.writeUInt32LE(85, pos); pos += 4;      // offset_input_type
+	buf.writeUInt32LE(total, pos); pos += 4;   // offset_output_type
+	buf.writeUInt32LE(65, pos); pos += 4;      // lock_len
+	// Bytes [20..85] are already zero (lock placeholder).
+	pos = 85;
+	buf.writeUInt32LE(inputType.length, pos); pos += 4; // input_type_len
+	inputType.copy(buf, pos);
+	return buf;
+}
+
 export function computeSigningMessage(
 	txHash: string,
 	witnessPlaceholder: Buffer,
@@ -274,10 +291,11 @@ export function injectSignature(tx: UnsignedTx, signatureHex: string): UnsignedT
 	const sig = hexToBuffer(signatureHex);
 	if (sig.length !== 65) throw new Error(`signature must be 65 bytes, got ${sig.length}`);
 
-	const witness = placeholderWitness();
-	sig.copy(witness, 20); // Write signature at bytes [20..85].
+	const existing = Buffer.from(hexToBuffer(tx.witnesses[0]));
+	if (existing.length < 85) throw new Error(`witness[0] too short: ${existing.length}`);
+	sig.copy(existing, 20); // Write signature at bytes [20..85], preserving input_type.
 	const clone = { ...tx, witnesses: [...tx.witnesses] };
-	clone.witnesses[0] = bufferToHex(witness);
+	clone.witnesses[0] = bufferToHex(existing);
 	return clone;
 }
 
@@ -436,9 +454,9 @@ interface TemplateResult {
 
 function buildTemplate(tx: UnsignedTx): TemplateResult {
 	const txHash = computeRawTxHash(tx);
-	const placeholder = placeholderWitness();
+	const firstWitness = hexToBuffer(tx.witnesses[0]);
 	const additional = tx.witnesses.slice(1).map(w => hexToBuffer(w));
-	const signingMessage = computeSigningMessage(txHash, placeholder, additional);
+	const signingMessage = computeSigningMessage(txHash, firstWitness, additional);
 	return { tx, tx_hash: txHash, signing_message: signingMessage };
 }
 
@@ -686,7 +704,7 @@ export async function buildClaimJob(
 
 export async function buildCompleteJob(
 	lockArgs: string,
-	params: { job_tx_hash: string; job_index: number; worker_lock_args: string; result_hash?: string },
+	params: { job_tx_hash: string; job_index: number; worker_lock_args: string; result?: string },
 ): Promise<TemplateResult> {
 	const depTxHash = requireEnv('JOB_CELL_DEP_TX_HASH');
 
@@ -700,9 +718,30 @@ export async function buildCompleteJob(
 		throw new Error(`reward ${Number(rewardShannons) / 1e8} CKB is below minimum cell capacity (61 CKB)`);
 	}
 
+	const descHash = jobData.length >= 122 ? jobData.subarray(90, 122) : Buffer.alloc(32);
+	const hasDescription = !descHash.every(b => b === 0);
+
+	if (hasDescription && !params.result) {
+		throw new Error('result required for jobs with a description');
+	}
+
+	let resultHash: Buffer | undefined;
+	let firstWitnessHex: string;
+
+	if (params.result) {
+		const resultBytes = Buffer.from(params.result, 'utf-8');
+		const preimage = Buffer.concat([descHash, resultBytes]);
+		resultHash = ckbHash(preimage);
+		const proof = Buffer.concat([resultHash, resultBytes]);
+		firstWitnessHex = bufferToHex(placeholderWitnessWithInputType(proof));
+	} else {
+		firstWitnessHex = bufferToHex(placeholderWitness());
+	}
+
 	const workerLock = secp256k1Lock(params.worker_lock_args);
 	const posterLock = secp256k1Lock(lockArgs);
-	const posterRefundAfterFee = posterRefund - ESTIMATED_FEE;
+	const memoCost = resultHash ? RESULT_MEMO_CAPACITY : 0n;
+	const posterRefundAfterFee = posterRefund - ESTIMATED_FEE - memoCost;
 
 	const inputs: TxCellInput[] = [{
 		since: '0x0',
@@ -715,6 +754,16 @@ export async function buildCompleteJob(
 	];
 	const outputsData = ['0x', '0x'];
 
+	if (resultHash) {
+		const memoData = Buffer.alloc(33);
+		memoData[0] = 0;
+		resultHash.copy(memoData, 1);
+		outputs.push({ capacity: formatCap(RESULT_MEMO_CAPACITY), lock: secp256k1Lock(params.worker_lock_args), type: null });
+		outputsData.push(bufferToHex(memoData));
+	}
+
+	const witnesses = [firstWitnessHex, ...Array.from({ length: inputs.length - 1 }, () => '0x')];
+
 	const tx: UnsignedTx = {
 		version: '0x0',
 		cell_deps: [
@@ -725,7 +774,7 @@ export async function buildCompleteJob(
 		inputs,
 		outputs,
 		outputs_data: outputsData,
-		witnesses: placeholderWitnesses(inputs.length),
+		witnesses,
 	};
 
 	return buildTemplate(tx);
