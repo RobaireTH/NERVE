@@ -36,12 +36,12 @@ const ESTIMATED_FEE: u64 = 2_000_000;
 fn job_type_env() -> Result<(String, String), TxBuildError> {
 	let code_hash = std::env::var("JOB_CELL_TYPE_CODE_HASH").map_err(|_| {
 		TxBuildError::MissingCellDep(
-			"JOB_CELL_TYPE_CODE_HASH not set — run scripts/deploy_contracts.sh first".into(),
+			"JOB_CELL_TYPE_CODE_HASH not set; run scripts/deploy_contracts.sh first".into(),
 		)
 	})?;
 	let dep_tx_hash = std::env::var("JOB_CELL_DEP_TX_HASH").map_err(|_| {
 		TxBuildError::MissingCellDep(
-			"JOB_CELL_DEP_TX_HASH not set — run scripts/deploy_contracts.sh first".into(),
+			"JOB_CELL_DEP_TX_HASH not set; run scripts/deploy_contracts.sh first".into(),
 		)
 	})?;
 	Ok((code_hash, dep_tx_hash))
@@ -387,7 +387,7 @@ async fn find_worker_capability_nft(
 ) -> Result<Value, TxBuildError> {
 	let cap_nft_code_hash = std::env::var("CAP_NFT_TYPE_CODE_HASH").map_err(|_| {
 		TxBuildError::MissingCellDep(
-			"CAP_NFT_TYPE_CODE_HASH not set — run scripts/deploy_contracts.sh first".into(),
+			"CAP_NFT_TYPE_CODE_HASH not set; run scripts/deploy_contracts.sh first".into(),
 		)
 	})?;
 

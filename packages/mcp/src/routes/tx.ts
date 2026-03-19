@@ -1,8 +1,8 @@
 // TX template, submit, and status endpoints for external agents.
 //
-// POST /tx/template — build unsigned TX + signing message
-// POST /tx/submit   — inject signature + broadcast
-// GET  /tx/status/:tx_hash — check TX status
+// POST /tx/template: build unsigned TX + signing message.
+// POST /tx/submit: inject signature + broadcast.
+// GET  /tx/status/:tx_hash: check TX status.
 
 import { Router, Request, Response } from 'express';
 import { getTransaction, sendTransaction } from '../ckb.js';
@@ -37,7 +37,7 @@ const intentBuilders: Record<string, (lockArgs: string, params: Record<string, u
 	transfer: (la, p) => buildTransfer(la, p as any),
 };
 
-// POST /tx/template — build unsigned transaction + signing message.
+// POST /tx/template: build unsigned transaction + signing message.
 router.post('/template', async (req: Request, res: Response) => {
 	try {
 		const { intent, lock_args, params } = req.body;
@@ -76,7 +76,7 @@ router.post('/template', async (req: Request, res: Response) => {
 	}
 });
 
-// POST /tx/submit — inject signature and broadcast.
+// POST /tx/submit: inject signature and broadcast.
 router.post('/submit', async (req: Request, res: Response) => {
 	try {
 		const { tx, signature } = req.body;
@@ -101,7 +101,7 @@ router.post('/submit', async (req: Request, res: Response) => {
 	}
 });
 
-// GET /tx/status/:tx_hash — check transaction status.
+// GET /tx/status/:tx_hash: check transaction status.
 router.get('/status/:tx_hash', async (req: Request, res: Response) => {
 	try {
 		const { tx_hash } = req.params;

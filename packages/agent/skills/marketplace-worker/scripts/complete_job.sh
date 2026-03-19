@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Complete a Claimed job — destroys the job cell and routes reward to worker.
+# Complete a Claimed job: destroys the job cell and routes reward to worker.
 #
 # Usage: complete_job.sh --job-tx-hash 0x... --job-index 0 --worker-lock-args 0x...
 # Output: JSON with tx_hash on success, error on failure.

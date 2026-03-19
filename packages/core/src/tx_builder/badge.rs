@@ -19,12 +19,12 @@ const BADGE_CELL_CAPACITY: u64 = 188 * 100_000_000;
 fn dob_badge_env() -> Result<(String, String), TxBuildError> {
 	let code_hash = std::env::var("DOB_BADGE_CODE_HASH").map_err(|_| {
 		TxBuildError::MissingCellDep(
-			"DOB_BADGE_CODE_HASH not set — deploy or configure the dob-badge contract first".into(),
+			"DOB_BADGE_CODE_HASH not set; deploy or configure the dob-badge contract first".into(),
 		)
 	})?;
 	let dep_tx_hash = std::env::var("DOB_BADGE_DEP_TX_HASH").map_err(|_| {
 		TxBuildError::MissingCellDep(
-			"DOB_BADGE_DEP_TX_HASH not set — deploy or configure the dob-badge contract first"
+			"DOB_BADGE_DEP_TX_HASH not set; deploy or configure the dob-badge contract first"
 				.into(),
 		)
 	})?;

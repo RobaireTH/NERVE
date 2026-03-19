@@ -1,4 +1,4 @@
-// TypeScript CKB transaction builder — molecule serialization, signing support,
+// TypeScript CKB transaction builder: molecule serialization, signing support,
 // cell collection, cell data encoders, and unsigned intent builders.
 //
 // Ported from packages/core/src/tx_builder/{molecule,signing,identity,job,transfer}.rs.
@@ -445,7 +445,7 @@ function placeholderWitnesses(count: number): string[] {
 
 function requireEnv(name: string): string {
 	const val = process.env[name];
-	if (!val) throw new Error(`${name} not set — deploy contracts first.`);
+	if (!val) throw new Error(`${name} not set; deploy contracts first.`);
 	return val;
 }
 

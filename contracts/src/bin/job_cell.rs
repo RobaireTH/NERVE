@@ -20,7 +20,7 @@
 //   - Cell destruction rules (status-specific):
 //     - Open: always allowed (poster cancels unclaimed job).
 //     - Reserved: only after TTL (prevents rug-pull during direct destruction too).
-//     - Claimed: settlement — total non-poster outputs must be >= reward_shannons.
+//     - Claimed: settlement requires total non-poster outputs >= reward_shannons.
 //     - Completed/Expired: always allowed (cleanup).
 //   - Creation: status=Open, poster_lock_args non-zero, reward > 0.
 //
@@ -230,10 +230,10 @@ fn validate_transition() -> Result<(), i8> {
 fn validate_destruction(old: &[u8]) -> Result<(), i8> {
 	let status = old[1];
 	match status {
-		// Open: poster cancels unclaimed job — always allowed.
+		// Open: poster cancels unclaimed job, always allowed.
 		STATUS_OPEN => Ok(()),
 
-		// Reserved: poster cancels assigned job — only after TTL.
+		// Reserved: poster cancels assigned job, only after TTL.
 		// Same logic as the state-transition TTL check, applied to direct destruction.
 		STATUS_RESERVED => {
 			let ttl = read_u64_le(&old[50..58]).ok_or(ERR_INVALID_DATA)?;
@@ -251,7 +251,7 @@ fn validate_destruction(old: &[u8]) -> Result<(), i8> {
 			verify_settlement_outputs(old)
 		}
 
-		// Completed/Expired: cleanup — always allowed.
+		// Completed/Expired: cleanup, always allowed.
 		STATUS_COMPLETED | STATUS_EXPIRED => Ok(()),
 
 		_ => Err(ERR_INVALID_STATUS),

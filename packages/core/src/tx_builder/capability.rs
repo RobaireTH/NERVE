@@ -18,13 +18,13 @@ const CAP_NFT_CELL_MIN: u64 = 200 * 100_000_000;
 fn cap_nft_type_env() -> Result<(String, String), TxBuildError> {
 	let code_hash = std::env::var("CAP_NFT_TYPE_CODE_HASH").map_err(|_| {
 		TxBuildError::MissingCellDep(
-			"CAP_NFT_TYPE_CODE_HASH not set — run scripts/deploy_contracts.sh capability_nft first"
+			"CAP_NFT_TYPE_CODE_HASH not set; run scripts/deploy_contracts.sh capability_nft first"
 				.into(),
 		)
 	})?;
 	let dep_tx_hash = std::env::var("CAP_NFT_DEP_TX_HASH").map_err(|_| {
 		TxBuildError::MissingCellDep(
-			"CAP_NFT_DEP_TX_HASH not set — run scripts/deploy_contracts.sh capability_nft first"
+			"CAP_NFT_DEP_TX_HASH not set; run scripts/deploy_contracts.sh capability_nft first"
 				.into(),
 		)
 	})?;
@@ -188,7 +188,7 @@ pub async fn build_mint_reputation_capability(
 		cell_deps.push(json!({ "out_point": rep_outpoint, "dep_type": "code" }));
 	} else {
 		return Err(TxBuildError::CellNotFound(
-			"agent reputation cell not found — required for proof_type=1 capability NFT".into(),
+			"agent reputation cell not found; required for proof_type=1 capability NFT".into(),
 		));
 	}
 

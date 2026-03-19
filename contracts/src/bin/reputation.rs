@@ -260,7 +260,7 @@ fn validate_finalize(old: &[u8], new: &[u8]) -> Result<(), i8> {
 fn validate_dispute_window_elapsed(old_data: &[u8]) -> Result<(), i8> {
 	let pending_expires_at = read_u64_le(&old_data[18..26]).ok_or(ERR_INVALID_DATA)?;
 	if pending_expires_at == 0 {
-		// No dispute window set — this shouldn't happen in Proposed state.
+		// No dispute window set. This shouldn't happen in Proposed state.
 		return Err(ERR_INVALID_TRANSITION);
 	}
 

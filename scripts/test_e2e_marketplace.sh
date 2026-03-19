@@ -44,7 +44,7 @@ wait_committed_and_indexed() {
 			ok "$label tx committed (poll $i)"
 			break
 		fi
-		echo "   … poll $i: $status — waiting 6s..."
+		echo "   … poll $i: $status, waiting 6s..."
 		sleep 6
 		[[ "$i" == "30" ]] && fail "$label tx not committed after 30 polls"
 	done
@@ -59,7 +59,7 @@ wait_committed_and_indexed() {
 			ok "$label cell indexed (poll $i)"
 			return 0
 		fi
-		echo "   … indexer poll $i: $cell_status — waiting 3s..."
+		echo "   … indexer poll $i: $cell_status, waiting 3s..."
 		sleep 3
 	done
 	fail "$label cell not indexed after 60s"
@@ -91,7 +91,7 @@ ok "tx_hash=$JOB_TX"
 
 wait_committed_and_indexed "$JOB_TX" "0x0" "job"
 
-# List jobs — verify it appears
+# List jobs; verify it appears
 
 step "1b. nerve jobs --status Open"
 JOBS_JSON=$(CORE_URL="$CORE_URL" MCP_URL="$MCP_URL" "$NERVE" jobs --status Open 2>&1)

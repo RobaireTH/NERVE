@@ -20,7 +20,7 @@ const router = Router();
 
 const AGENT_TYPE_CODE_HASH = process.env.AGENT_IDENTITY_TYPE_CODE_HASH ?? '';
 
-// GET /fiber/node — Fiber node info (node_id, addresses, channel count).
+// GET /fiber/node: Fiber node info (node_id, addresses, channel count).
 router.get('/node', async (_req, res) => {
 	try {
 		const info = await nodeInfo();
@@ -31,7 +31,7 @@ router.get('/node', async (_req, res) => {
 	}
 });
 
-// POST /fiber/peers — Connect to a peer by multiaddr.
+// POST /fiber/peers: Connect to a peer by multiaddr.
 // Body: { "peer_address": "/ip4/.../tcp/8228/p2p/<peer_id>" }
 router.post('/peers', async (req, res) => {
 	const { peer_address } = req.body as { peer_address?: string };
@@ -48,7 +48,7 @@ router.post('/peers', async (req, res) => {
 	}
 });
 
-// GET /fiber/channels — List open channels.
+// GET /fiber/channels: List open channels.
 // Query: ?peer_id=<optional>
 router.get('/channels', async (req, res) => {
 	const peerId = req.query.peer_id as string | undefined;
@@ -66,7 +66,7 @@ router.get('/channels', async (req, res) => {
 	}
 });
 
-// POST /fiber/channels — Open a channel with a connected peer.
+// POST /fiber/channels: Open a channel with a connected peer.
 // Body: { "peer_id": "0x...", "funding_ckb": 100, "public": true }
 // The peer must already be connected (POST /fiber/peers first).
 router.post('/channels', async (req, res) => {
@@ -92,7 +92,7 @@ router.post('/channels', async (req, res) => {
 	}
 });
 
-// DELETE /fiber/channels/:channel_id — Cooperatively close a channel.
+// DELETE /fiber/channels/:channel_id: Cooperatively close a channel.
 // Query: ?force=true for uncooperative close.
 router.delete('/channels/:channel_id', async (req, res) => {
 	const { channel_id } = req.params;
@@ -106,7 +106,7 @@ router.delete('/channels/:channel_id', async (req, res) => {
 	}
 });
 
-// POST /fiber/invoice — Create a payment invoice.
+// POST /fiber/invoice: Create a payment invoice.
 // Body: { "amount_ckb": 5, "description": "payment for job X", "expiry_seconds": 3600 }
 router.post('/invoice', async (req, res) => {
 	const { amount_ckb, description = '', expiry_seconds = 3600 } = req.body as {
@@ -131,7 +131,7 @@ router.post('/invoice', async (req, res) => {
 	}
 });
 
-// POST /fiber/hold-invoice — Create a hold invoice (escrow) with a pre-determined payment_hash.
+// POST /fiber/hold-invoice: Create a hold invoice (escrow) with a pre-determined payment_hash.
 // Body: { "amount_ckb": 5, "payment_hash": "0x...", "description": "escrow for job X" }
 router.post('/hold-invoice', async (req, res) => {
 	const { amount_ckb, payment_hash, description = '' } = req.body as {
@@ -156,7 +156,7 @@ router.post('/hold-invoice', async (req, res) => {
 	}
 });
 
-// POST /fiber/settle — Settle a hold invoice by revealing the preimage.
+// POST /fiber/settle: Settle a hold invoice by revealing the preimage.
 // Body: { "payment_hash": "0x...", "preimage": "0x..." }
 router.post('/settle', async (req, res) => {
 	const { payment_hash, preimage } = req.body as {
@@ -176,7 +176,7 @@ router.post('/settle', async (req, res) => {
 	}
 });
 
-// GET /fiber/invoice/:payment_hash — Get invoice status by payment_hash.
+// GET /fiber/invoice/:payment_hash: Get invoice status by payment_hash.
 router.get('/invoice/:payment_hash', async (req, res) => {
 	const { payment_hash } = req.params;
 	try {
@@ -193,12 +193,12 @@ router.get('/invoice/:payment_hash', async (req, res) => {
 	}
 });
 
-// POST /fiber/pay — Send a payment by invoice or keysend.
+// POST /fiber/pay: Send a payment by invoice or keysend.
 //
-// Option A — Pay by invoice (recommended):
+// Option A: Pay by invoice (recommended).
 //   Body: { "invoice": "fibt1..." }
 //
-// Option B — Keysend (spontaneous, no invoice):
+// Option B: Keysend (spontaneous, no invoice).
 //   Body: { "target_pubkey": "0x...", "amount_ckb": 5 }
 router.post('/pay', async (req, res) => {
 	const { invoice, target_pubkey, amount_ckb, description } = req.body as {
@@ -228,7 +228,7 @@ router.post('/pay', async (req, res) => {
 	}
 });
 
-// GET /fiber/ready — Quick readiness check for the Fiber payment layer.
+// GET /fiber/ready: Quick readiness check for the Fiber payment layer.
 // Returns { ready: true/false } so agents can preflight before payment operations.
 router.get('/ready', async (_req, res) => {
 	try {
@@ -239,7 +239,7 @@ router.get('/ready', async (_req, res) => {
 	}
 });
 
-// POST /fiber/pay-agent — Look up agent pubkey by lock_args and keysend payment.
+// POST /fiber/pay-agent: Look up agent pubkey by lock_args and keysend payment.
 router.post('/pay-agent', async (req, res) => {
 	const { lock_args, amount_ckb, description } = req.body as {
 		lock_args?: string;

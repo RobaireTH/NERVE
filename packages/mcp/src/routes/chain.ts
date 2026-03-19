@@ -3,7 +3,7 @@ import { getCellsByScript, getBalanceByLock, getTipBlockNumber, Script } from '.
 
 const router = Router();
 
-// GET /chain/height — current tip block number.
+// GET /chain/height: current tip block number.
 router.get('/height', async (_req, res) => {
 	try {
 		const height = await getTipBlockNumber();
@@ -14,7 +14,7 @@ router.get('/height', async (_req, res) => {
 	}
 });
 
-// GET /chain/cells?code_hash=&hash_type=&args=&script_type= — scan cells by script.
+// GET /chain/cells?code_hash=&hash_type=&args=&script_type=: scan cells by script.
 router.get('/cells', async (req, res) => {
 	const { code_hash, hash_type, args, script_type } = req.query as Record<string, string>;
 	if (!code_hash || !hash_type || !args || !script_type) {
@@ -35,7 +35,7 @@ router.get('/cells', async (req, res) => {
 	}
 });
 
-// GET /chain/balance/:lock_args — CKB balance for a secp256k1-blake2b lock.
+// GET /chain/balance/:lock_args: CKB balance for a secp256k1-blake2b lock.
 router.get('/balance/:lock_args', async (req, res) => {
 	const { lock_args } = req.params;
 	try {

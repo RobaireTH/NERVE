@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# setup_testnet.sh — One-shot testnet setup for NERVE demo.
+# setup_testnet.sh: One-shot testnet setup for NERVE demo.
 #
 # Deploys all contracts, spawns agent identities,
 # and creates reputation cells for both poster and worker agents.
@@ -94,7 +94,7 @@ wait_tx
 # Step 7: Mint capability NFT for worker
 
 step "Step 7: Minting capability NFT for worker (text_summarize)"
-# blake2b("text_summarize") — hardcoded for demo.
+# blake2b("text_summarize"), hardcoded for demo.
 TEXT_SUMMARIZE_HASH="0x$(echo -n 'text_summarize' | xxd -p | tr -d '\n' | \
 	python3 -c "
 import sys, hashlib
@@ -118,7 +118,7 @@ step "Step 8: Fiber Network setup (optional)"
 if [[ -n "${SKIP_FIBER:-}" ]]; then
 	echo "   Skipped (SKIP_FIBER is set)."
 elif [[ -n "${FIBER_RPC_URL:-}" ]]; then
-	# User provided an external Fiber node — validate it responds.
+	# User provided an external Fiber node; validate it responds.
 	if curl -sf -X POST "${FIBER_RPC_URL}" \
 		-H "Content-Type: application/json" \
 		-d '{"jsonrpc":"2.0","id":1,"method":"node_info","params":[]}' \
@@ -131,7 +131,7 @@ elif [[ -n "${FIBER_RPC_URL:-}" ]]; then
 		FIBER_STATUS="unreachable"
 	fi
 elif command -v npx >/dev/null 2>&1 && npx @fiber-pay/cli --version >/dev/null 2>&1; then
-	# fiber-pay CLI is available — start a daemon node.
+	# fiber-pay CLI is available; start a daemon node.
 	echo "   Starting Fiber node via fiber-pay CLI..."
 	if npx @fiber-pay/cli node start --daemon --network testnet --json 2>/dev/null; then
 		ok "Fiber daemon started."

@@ -149,12 +149,12 @@ pub async fn build_spawn_agent(
 ) -> Result<(Value, String), TxBuildError> {
 	let type_code_hash = std::env::var("AGENT_IDENTITY_TYPE_CODE_HASH").map_err(|_| {
 		TxBuildError::MissingCellDep(
-			"AGENT_IDENTITY_TYPE_CODE_HASH not set — run scripts/deploy_contracts.sh first".into(),
+			"AGENT_IDENTITY_TYPE_CODE_HASH not set; run scripts/deploy_contracts.sh first".into(),
 		)
 	})?;
 	let dep_tx_hash = std::env::var("AGENT_IDENTITY_DEP_TX_HASH").map_err(|_| {
 		TxBuildError::MissingCellDep(
-			"AGENT_IDENTITY_DEP_TX_HASH not set — run scripts/deploy_contracts.sh first".into(),
+			"AGENT_IDENTITY_DEP_TX_HASH not set; run scripts/deploy_contracts.sh first".into(),
 		)
 	})?;
 
@@ -319,12 +319,12 @@ pub async fn build_spawn_sub_agent(
 ) -> Result<(Value, String), TxBuildError> {
 	let type_code_hash = std::env::var("AGENT_IDENTITY_TYPE_CODE_HASH").map_err(|_| {
 		TxBuildError::MissingCellDep(
-			"AGENT_IDENTITY_TYPE_CODE_HASH not set — run scripts/deploy_contracts.sh first".into(),
+			"AGENT_IDENTITY_TYPE_CODE_HASH not set; run scripts/deploy_contracts.sh first".into(),
 		)
 	})?;
 	let dep_tx_hash = std::env::var("AGENT_IDENTITY_DEP_TX_HASH").map_err(|_| {
 		TxBuildError::MissingCellDep(
-			"AGENT_IDENTITY_DEP_TX_HASH not set — run scripts/deploy_contracts.sh first".into(),
+			"AGENT_IDENTITY_DEP_TX_HASH not set; run scripts/deploy_contracts.sh first".into(),
 		)
 	})?;
 

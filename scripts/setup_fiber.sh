@@ -178,7 +178,7 @@ FIBER_RPC_URL=http://127.0.0.1:${RPC_PORT}
 FIBER_P2P_PORT=${P2P_PORT}
 FIBER_NODE_ID=${NODE_ID}
 ENV
-	ok "Written to .env.fiber — source it to export Fiber env vars"
+	ok "Written to .env.fiber. Source it to export Fiber env vars."
 else
 	echo "   Could not read node ID (node may still be starting)."
 fi

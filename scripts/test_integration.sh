@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test_integration.sh — Cold E2E integration test for all NERVE flows.
+# test_integration.sh: Cold E2E integration test for all NERVE flows.
 #
 # Validates:
 #   1. Identity: spawn agent identity
@@ -19,8 +19,8 @@
 #   source .env && source .env.deployed && ./scripts/test_integration.sh
 #
 # Exit codes:
-#   0 — all tests passed
-#   1 — one or more tests failed
+#   0: all tests passed
+#   1: one or more tests failed
 
 set -euo pipefail
 
@@ -57,7 +57,7 @@ wait_committed_and_indexed() {
 			echo "   $label tx committed (poll $i)"
 			break
 		fi
-		echo "   … poll $i: $status — waiting 6s..."
+		echo "   … poll $i: $status, waiting 6s..."
 		sleep 6
 		[[ "$i" == "30" ]] && { fail "$label tx not committed after 30 polls"; return 1; }
 	done
@@ -72,7 +72,7 @@ wait_committed_and_indexed() {
 			echo "   $label cell indexed (poll $i)"
 			return 0
 		fi
-		echo "   … indexer poll $i: $cell_status — waiting 3s..."
+		echo "   … indexer poll $i: $cell_status, waiting 3s..."
 		sleep 3
 	done
 	fail "$label cell not indexed after 60s"

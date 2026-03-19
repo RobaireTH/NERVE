@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# start_demo.sh — Run the NERVE two-process marketplace demo.
+# start_demo.sh: Run the NERVE two-process marketplace demo.
 #
 # Starts two nerve-core instances (poster + worker) with separate keys
 # and runs the full job lifecycle: post → reserve → claim → complete.
@@ -42,7 +42,7 @@ TTL_BLOCKS="${DEMO_TTL_BLOCKS:-200}"
 
 [[ -n "${DEMO_POSTER_KEY:-}" ]] || { echo "error: DEMO_POSTER_KEY is not set" >&2; exit 1; }
 [[ -n "${DEMO_WORKER_KEY:-}" ]] || { echo "error: DEMO_WORKER_KEY is not set" >&2; exit 1; }
-[[ -n "${JOB_CELL_TYPE_CODE_HASH:-}" ]] || { echo "error: JOB_CELL_TYPE_CODE_HASH not set — run deploy_contracts.sh first" >&2; exit 1; }
+[[ -n "${JOB_CELL_TYPE_CODE_HASH:-}" ]] || { echo "error: JOB_CELL_TYPE_CODE_HASH not set. Run deploy_contracts.sh first." >&2; exit 1; }
 
 CKB_RPC="${CKB_RPC_URL:-https://testnet.ckb.dev/rpc}"
 
@@ -67,7 +67,7 @@ wait_committed_and_indexed() {
 			ok "$label tx committed (poll $i)"
 			break
 		fi
-		echo "   … poll $i: $status — waiting 6s..."
+		echo "   … poll $i: $status, waiting 6s..."
 		sleep 6
 		if [[ "$i" == "30" ]]; then
 			fail "$label tx not committed after 30 polls"
@@ -85,7 +85,7 @@ wait_committed_and_indexed() {
 			ok "$label cell indexed (poll $i)"
 			return 0
 		fi
-		echo "   … indexer poll $i: $cell_status — waiting 3s..."
+		echo "   … indexer poll $i: $cell_status, waiting 3s..."
 		sleep 3
 	done
 	fail "$label cell not indexed after 60s"
@@ -372,7 +372,7 @@ fi
 
 echo
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "NERVE Demo — All Flows Complete"
+echo "NERVE Demo: All Flows Complete"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo
 echo "  FLOW 1: Agent Marketplace"
@@ -390,7 +390,7 @@ if [[ -n "$CAP_TX" ]]; then
 	echo "    cap NFT:  $CAP_TX"
 	echo "    proof:    signed attestation"
 else
-	echo "    (skipped — deploy capability_nft)"
+	echo "    (skipped: deploy capability_nft)"
 fi
 
 if [[ "$FULL_MODE" == "--full" ]]; then
@@ -406,14 +406,14 @@ if [[ "$FULL_MODE" == "--full" ]]; then
 	if [[ -n "$BADGE_TX" ]]; then
 		echo "    badge:    $BADGE_TX"
 	else
-		echo "    (skipped — set DOB_BADGE_CODE_HASH)"
+		echo "    (skipped: set DOB_BADGE_CODE_HASH)"
 	fi
 	echo
 	echo "  FLOW 6: Fiber Payment"
 	if [[ -n "$FIBER_TX" ]]; then
 		echo "    invoice:  $FIBER_TX"
 	else
-		echo "    (skipped — Fiber unavailable)"
+		echo "    (skipped: Fiber unavailable)"
 	fi
 	echo
 	echo "  FLOW 7: Agent Discovery"
@@ -421,7 +421,7 @@ if [[ "$FULL_MODE" == "--full" ]]; then
 		echo "    workers:  $WORKER_COUNT found"
 		echo "    matched:  $MATCH_COUNT job(s)"
 	else
-		echo "    (skipped — MCP bridge unavailable)"
+		echo "    (skipped: MCP bridge unavailable)"
 	fi
 fi
 echo

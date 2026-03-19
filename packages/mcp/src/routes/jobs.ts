@@ -101,7 +101,7 @@ router.get('/', async (req, res) => {
 	}
 });
 
-// GET /jobs/match/:lock_args — Find open jobs matching an agent's capability NFTs.
+// GET /jobs/match/:lock_args: Find open jobs matching an agent's capability NFTs.
 // Returns jobs that are either open-to-all (zero capability_hash) or match a
 // capability NFT held by the agent. Also filters out expired jobs.
 router.get('/match/:lock_args', async (req, res) => {
@@ -217,7 +217,7 @@ router.get('/match/:lock_args', async (req, res) => {
 	}
 });
 
-// POST /jobs — post a new job (proxies to nerve-core TX builder).
+// POST /jobs: post a new job (proxies to nerve-core TX builder).
 // Body: { reward_ckb: number, ttl_blocks: number, capability_hash: string, description?: string }
 router.post('/', async (req, res) => {
 	const { reward_ckb, ttl_blocks, capability_hash, description } = req.body as {
@@ -259,7 +259,7 @@ router.post('/', async (req, res) => {
 	}
 });
 
-// GET /jobs/:tx_hash/:index — get a specific job cell by outpoint.
+// GET /jobs/:tx_hash/:index: get a specific job cell by outpoint.
 router.get('/:tx_hash/:index', async (req, res) => {
 	const { tx_hash, index } = req.params;
 	const indexNum = parseInt(index, 10);
@@ -286,7 +286,7 @@ router.get('/:tx_hash/:index', async (req, res) => {
 	}
 });
 
-// GET /jobs/stream — SSE endpoint for real-time job state changes.
+// GET /jobs/stream: SSE endpoint for real-time job state changes.
 // Polls the CKB indexer every 10s and emits events when jobs are created, updated, or consumed.
 router.get('/stream', (req, res) => {
 	if (!JOB_TYPE_CODE_HASH) {

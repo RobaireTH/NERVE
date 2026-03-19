@@ -36,7 +36,7 @@ async fn main() {
 		.route("/agent/cells", get(get_cells))
 		.route("/agent/sub-agents", get(list_sub_agents))
 		.route("/agent/sub-agents/:lock_args", get(get_sub_agent))
-		// Admin endpoints (deployment tooling — not exposed externally in production).
+		// Admin endpoints (deployment tooling, not exposed externally in production).
 		.route("/admin/deploy-bin", post(deploy_bin))
 		.route("/admin/test-spending-cap", post(test_spending_cap))
 		// Transaction builder endpoints.

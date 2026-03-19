@@ -21,7 +21,7 @@ pub struct DeployBinRequest {
 	pub binary_hex: String,
 }
 
-/// POST /admin/deploy-bin — deploy a contract binary as a CKB data cell.
+/// POST /admin/deploy-bin: deploy a contract binary as a CKB data cell.
 ///
 /// Gated behind the ENABLE_ADMIN_API environment variable. Returns 403 if unset.
 /// Returns { tx_hash, code_hash, dep_type } which should be written to .env.deployed.
@@ -30,7 +30,7 @@ pub async fn deploy_bin(
 	Json(body): Json<DeployBinRequest>,
 ) -> Result<Json<Value>, TxBuildError> {
 	if std::env::var("ENABLE_ADMIN_API").is_err() {
-		return Err(TxBuildError::Rpc("admin API is disabled — set ENABLE_ADMIN_API=1 to enable".into()));
+		return Err(TxBuildError::Rpc("admin API is disabled. Set ENABLE_ADMIN_API=1 to enable.".into()));
 	}
 
 	let binary = hex::decode(body.binary_hex.trim_start_matches("0x"))
@@ -48,7 +48,7 @@ pub async fn deploy_bin(
 	})))
 }
 
-/// POST /admin/test-spending-cap — demonstrates consensus-level spending limit enforcement.
+/// POST /admin/test-spending-cap: demonstrates consensus-level spending limit enforcement.
 ///
 /// Builds a transaction that deliberately exceeds the agent identity's spending_limit_per_tx,
 /// submits it to the CKB node, and captures the script validation rejection. This proves
@@ -60,7 +60,7 @@ pub async fn test_spending_cap(
 ) -> Result<Json<Value>, TxBuildError> {
 	if std::env::var("ENABLE_ADMIN_API").is_err() {
 		return Err(TxBuildError::Rpc(
-			"admin API is disabled — set ENABLE_ADMIN_API=1 to enable".into(),
+			"admin API is disabled. Set ENABLE_ADMIN_API=1 to enable.".into(),
 		));
 	}
 
@@ -246,14 +246,14 @@ pub async fn test_spending_cap(
 	// Submit to the node and expect rejection.
 	match state.ckb.send_transaction(&tx).await {
 		Ok(hash) => {
-			// Unexpected success — the type script should have rejected it.
+			// Unexpected success. The type script should have rejected it.
 			Ok(Json(json!({
 				"attempted_ckb": shannons_to_ckb(overspend_amount),
 				"limit_ckb": shannons_to_ckb(spending_limit),
 				"rejected": false,
 				"tx_hash": hash,
 				"stage": "consensus",
-				"warning": "transaction was unexpectedly accepted — check identity type script",
+				"warning": "transaction was unexpectedly accepted. Check identity type script.",
 			})))
 		}
 		Err(e) => {
@@ -264,7 +264,7 @@ pub async fn test_spending_cap(
 				"rejected": true,
 				"error": error_msg,
 				"stage": "consensus",
-				"explanation": "The CKB node rejected this transaction because the agent identity type script detected that the payment exceeds spending_limit_per_tx. This is consensus-level enforcement — no software guardrail can bypass it.",
+				"explanation": "The CKB node rejected this transaction because the agent identity type script detected that the payment exceeds spending_limit_per_tx. This is consensus-level enforcement. No software guardrail can bypass it.",
 			})))
 		}
 	}

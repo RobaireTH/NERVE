@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// UTXOSwap helper — execute CKB/xUDT swaps on CKB testnet via the UTXOSwap SDK.
+// UTXOSwap helper: execute CKB/xUDT swaps on CKB testnet via the UTXOSwap SDK.
 //
 // Usage:
 //   node utxoswap.mjs --from CKB --to <type_args_hash> --amount <ckb_amount> [--slippage <bps>]
@@ -22,7 +22,7 @@ const { values } = parseArgs({
 });
 
 if (values.help) {
-	console.log(`UTXOSwap helper — swap CKB for xUDT tokens on CKB testnet.
+	console.log(`UTXOSwap helper: swap CKB for xUDT tokens on CKB testnet.
 
 Usage:
   node utxoswap.mjs --from CKB --to <type_args> --amount <ckb> [--slippage <bps>]

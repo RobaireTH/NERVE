@@ -112,7 +112,7 @@ fn run() -> Result<(), i8> {
 		(false, true) => validate_creation(),
 		// Update: spending with preserved identity.
 		(true, true) => validate_spending(),
-		// Burn attempt: identity cell destroyed — forbidden.
+		// Burn attempt: identity cell destroyed. Forbidden.
 		(true, false) => Err(ERR_BURN_FORBIDDEN),
 		// Impossible: no input and no output but type script ran.
 		(false, false) => Err(ERR_SYS),

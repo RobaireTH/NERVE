@@ -1,4 +1,4 @@
-// Fiber Network client — backed by @fiber-pay/sdk FiberRpcClient.
+// Fiber Network client: backed by @fiber-pay/sdk FiberRpcClient.
 //
 // Wraps the SDK's typed RPC client and re-exports the same function signatures
 // used by routes/fiber.ts for backward compatibility. Gains: proper error types

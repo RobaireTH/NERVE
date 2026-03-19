@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Token balance helper — query xUDT token balances on CKB testnet.
+// Token balance helper: query xUDT token balances on CKB testnet.
 //
 // Usage:
 //   node token-balance.mjs --address <ckb_address> [--token <type_args>]
@@ -21,7 +21,7 @@ const { values } = parseArgs({
 });
 
 if (values.help) {
-	console.log(`Token balance helper — query xUDT balances on CKB testnet.
+	console.log(`Token balance helper: query xUDT balances on CKB testnet.
 
 Usage:
   node token-balance.mjs --address <ckb_address> [--token <type_args>]
@@ -67,7 +67,7 @@ async function main() {
 	};
 
 	// Use the indexer to search for cells with this type script owned by the address.
-	// We need the lock script for the address — derive it from the address format.
+	// We need the lock script for the address; derive it from the address format.
 	const lockScript = await addressToLockScript(values.address);
 
 	const searchKey = {
@@ -108,7 +108,7 @@ async function addressToLockScript(address) {
 	const SECP_CODE_HASH = '0x9bd7e06f3ecf4be0f2fcd2188b23f1b9fcc88e5d4b65a8637b17723bbda3cce8';
 
 	if (address.startsWith('ckt1qz') || address.startsWith('ck1qz')) {
-		// Short format — extract lock_args from the address payload.
+		// Short format: extract lock_args from the address payload.
 		// For simplicity, fall back to asking the node if available.
 	}
 
@@ -132,7 +132,7 @@ async function addressToLockScript(address) {
 			return { code_hash: SECP_CODE_HASH, hash_type: 'type', args };
 		}
 	} catch {
-		// bech32 not available — fall through.
+		// bech32 not available; fall through.
 	}
 
 	// Fallback: assume the address contains lock_args directly (0x-prefixed hex).

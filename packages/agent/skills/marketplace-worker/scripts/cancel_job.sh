@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cancel an Open or Reserved job — destroys the cell and returns capacity to poster.
+# Cancel an Open or Reserved job: destroys the cell and returns capacity to poster.
 #
 # Usage: cancel_job.sh --job-tx-hash 0x... --job-index 0
 # Output: JSON with tx_hash on success, error on failure.

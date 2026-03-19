@@ -34,7 +34,7 @@ pub struct AppState {
 	pub ckb: Arc<CkbClient>,
 	/// Raw private key bytes (kept in memory only, never logged or persisted).
 	pub private_key: Vec<u8>,
-	/// blake160(compressed_pubkey) — the lock args for this agent's identity cell.
+	/// blake160(compressed_pubkey): the lock args for this agent's identity cell.
 	pub lock_args: String,
 	/// Maximum CKB that a single transaction may transfer, in shannons.
 	pub spending_limit_shannons: u64,

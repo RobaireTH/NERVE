@@ -62,7 +62,7 @@ pub async fn get_cells(
 	Ok(Json(json!({ "cells": cells })))
 }
 
-/// GET /agent/sub-agents — list all managed sub-agents.
+/// GET /agent/sub-agents: list all managed sub-agents.
 pub async fn list_sub_agents(
 	State(state): State<AppState>,
 ) -> Result<Json<Value>, TxBuildError> {
@@ -81,7 +81,7 @@ pub async fn list_sub_agents(
 	Ok(Json(json!({ "sub_agents": list, "count": list.len() })))
 }
 
-/// GET /agent/sub-agents/:lock_args — get a specific sub-agent.
+/// GET /agent/sub-agents/:lock_args: get a specific sub-agent.
 pub async fn get_sub_agent(
 	State(state): State<AppState>,
 	Path(lock_args): Path<String>,

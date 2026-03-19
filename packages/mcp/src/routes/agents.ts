@@ -82,7 +82,7 @@ function ckbBlake2b(data: Uint8Array): Buffer {
 	return Buffer.from(h.digest());
 }
 
-// GET /agents/:lock_args — look up agent identity cell for a given lock_args.
+// GET /agents/:lock_args: look up agent identity cell for a given lock_args.
 router.get('/:lock_args', async (req, res) => {
 	if (!AGENT_TYPE_CODE_HASH) {
 		res.status(503).json({ error: 'AGENT_IDENTITY_TYPE_CODE_HASH not configured' });
@@ -118,7 +118,7 @@ router.get('/:lock_args', async (req, res) => {
 	}
 });
 
-// GET /agents/:lock_args/reputation — look up reputation cell for an agent.
+// GET /agents/:lock_args/reputation: look up reputation cell for an agent.
 router.get('/:lock_args/reputation', async (req, res) => {
 	if (!REP_TYPE_CODE_HASH) {
 		res.status(503).json({ error: 'REPUTATION_TYPE_CODE_HASH not configured' });
@@ -151,7 +151,7 @@ router.get('/:lock_args/reputation', async (req, res) => {
 	}
 });
 
-// GET /agents/:lock_args/reputation/status — dispute window status for pending reputation proposals.
+// GET /agents/:lock_args/reputation/status: dispute window status for pending reputation proposals.
 router.get('/:lock_args/reputation/status', async (req, res) => {
 	if (!REP_TYPE_CODE_HASH) {
 		res.status(503).json({ error: 'REPUTATION_TYPE_CODE_HASH not configured' });
@@ -211,7 +211,7 @@ router.get('/:lock_args/reputation/status', async (req, res) => {
 	}
 });
 
-// GET /agents/:lock_args/spending — daily spending status from on-chain accumulator.
+// GET /agents/:lock_args/spending: daily spending status from on-chain accumulator.
 router.get('/:lock_args/spending', async (req, res) => {
 	if (!AGENT_TYPE_CODE_HASH) {
 		res.status(503).json({ error: 'AGENT_IDENTITY_TYPE_CODE_HASH not configured' });
@@ -255,7 +255,7 @@ router.get('/:lock_args/spending', async (req, res) => {
 	}
 });
 
-// GET /agents/:lock_args/badges — list PoP badges for an agent.
+// GET /agents/:lock_args/badges: list PoP badges for an agent.
 router.get('/:lock_args/badges', async (req, res) => {
 	if (!DOB_BADGE_CODE_HASH) {
 		res.status(503).json({ error: 'DOB_BADGE_CODE_HASH not configured' });
@@ -294,7 +294,7 @@ router.get('/:lock_args/badges', async (req, res) => {
 	}
 });
 
-// GET /agents/:lock_args/capabilities — list capability NFTs for an agent.
+// GET /agents/:lock_args/capabilities: list capability NFTs for an agent.
 router.get('/:lock_args/capabilities', async (req, res) => {
 	if (!CAP_NFT_TYPE_CODE_HASH) {
 		res.status(503).json({ error: 'CAP_NFT_TYPE_CODE_HASH not configured' });
@@ -342,7 +342,7 @@ router.get('/:lock_args/capabilities', async (req, res) => {
 	}
 });
 
-// GET /agents/:lock_args/reputation/verify — verify settlement hashes against on-chain proof_root.
+// GET /agents/:lock_args/reputation/verify: verify settlement hashes against on-chain proof_root.
 router.get('/:lock_args/reputation/verify', async (req, res) => {
 	if (!REP_TYPE_CODE_HASH) {
 		res.status(503).json({ error: 'REPUTATION_TYPE_CODE_HASH not configured' });
@@ -405,7 +405,7 @@ router.get('/:lock_args/reputation/verify', async (req, res) => {
 	}
 });
 
-// GET /agents/:lock_args/sub-agents — list sub-agents whose parent_lock_args matches this agent.
+// GET /agents/:lock_args/sub-agents: list sub-agents whose parent_lock_args matches this agent.
 router.get('/:lock_args/sub-agents', async (req, res) => {
 	if (!AGENT_TYPE_CODE_HASH) {
 		res.status(503).json({ error: 'AGENT_IDENTITY_TYPE_CODE_HASH not configured' });
@@ -450,7 +450,7 @@ router.get('/:lock_args/sub-agents', async (req, res) => {
 	}
 });
 
-// GET /agents/:lock_args/trust — composite trust score synthesized from on-chain state.
+// GET /agents/:lock_args/trust: composite trust score synthesized from on-chain state.
 // Parallel-fetches identity, reputation, capabilities, badges, and balance, then
 // computes a normalized 0-100 score with a full breakdown.
 router.get('/:lock_args/trust', async (req, res) => {
@@ -560,7 +560,7 @@ router.get('/:lock_args/trust', async (req, res) => {
 		try {
 			const shannons = await getBalanceByLock(lock_args);
 			balanceCkb = Number(shannons / 100_000_000n);
-		} catch { /* balance lookup failed — use 0 */ }
+		} catch { /* balance lookup failed; use 0 */ }
 		const solvencyScore = Math.min(Math.round(Math.log10(Math.max(balanceCkb, 1)) * 5), 15);
 
 		const composite = reputationScore + capabilityScore + trackRecordScore + solvencyScore;

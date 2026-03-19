@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# test_telegram_demo.sh — Validate services are running and print Telegram test instructions.
+# test_telegram_demo.sh: Validate services are running and print Telegram test instructions.
 #
 # Prerequisites:
 #   - nerve-core running on :8080
@@ -41,7 +41,7 @@ step "Checking Telegram config"
 if [[ -n "${OPENCLAW_TELEGRAM_TOKEN:-}" ]]; then
 	ok "OPENCLAW_TELEGRAM_TOKEN is set"
 else
-	fail "OPENCLAW_TELEGRAM_TOKEN not set — configure in .env"
+	fail "OPENCLAW_TELEGRAM_TOKEN not set. Configure in .env."
 fi
 
 # Balance Check
@@ -73,7 +73,7 @@ fi
 
 echo
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "Telegram Demo — Test Messages"
+echo "Telegram Demo: Test Messages"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo
 echo "Start the OpenClaw agent gateway, then send these messages"

@@ -73,7 +73,7 @@ ok "Temp channel ID: $TEMP_CHANNEL_ID"
 echo "   Waiting 30s for channel to be funded and confirmed..."
 sleep 30
 
-# List channels — find the settled channel ID
+# List channels; find the settled channel ID
 
 step "Listing channels"
 CHANNELS=$(curl -sf "$MCP_URL/fiber/channels")

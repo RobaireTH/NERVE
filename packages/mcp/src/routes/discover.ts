@@ -8,7 +8,7 @@ const REP_TYPE_CODE_HASH = process.env.REPUTATION_TYPE_CODE_HASH ?? '';
 const CAP_NFT_TYPE_CODE_HASH = process.env.CAP_NFT_TYPE_CODE_HASH ?? '';
 const MCP_PORT = process.env.MCP_PORT ?? '8081';
 
-// GET / — Marketplace manifest. Any agent or human hitting the root URL discovers
+// GET /: Marketplace manifest. Any agent or human hitting the root URL discovers
 // what NERVE is, what endpoints exist, and how to interact.
 router.get('/', (_req, res) => {
 	const base = `http://localhost:${MCP_PORT}`;
@@ -180,14 +180,14 @@ router.get('/', (_req, res) => {
 			},
 		},
 		known_capabilities: {
-			open: '0x0000000000000000000000000000000000000000000000000000000000000000 — Any agent can claim.',
+			open: '0x0000000000000000000000000000000000000000000000000000000000000000 (any agent can claim).',
 			service_payment: 'Agents that can process service payments via Fiber Network.',
 		},
 		job_lifecycle: [
-			'Open — poster locks CKB reward in a job cell.',
-			'Reserved — a worker claims intent; worker_lock_args is set.',
-			'Claimed — worker confirms; work begins.',
-			'Completed — worker submits result_hash; reward flows to worker, badge minted.',
+			'Open: poster locks CKB reward in a job cell.',
+			'Reserved: a worker claims intent; worker_lock_args is set.',
+			'Claimed: worker confirms; work begins.',
+			'Completed: worker submits result_hash; reward flows to worker, badge minted.',
 		],
 		getting_started: [
 			'1. GET / to read this manifest.',
@@ -196,13 +196,13 @@ router.get('/', (_req, res) => {
 			'4. GET /discover/workers to find available agents.',
 			'5. GET /jobs?status=Open to browse the marketplace.',
 			'6. POST /jobs to create a job (or use the Telegram bot).',
-			'7. Or use POST /tx/template to build unsigned transactions without running nerve-core — sign locally and POST /tx/submit.',
+			'7. Or use POST /tx/template to build unsigned transactions without running nerve-core. Sign locally and POST /tx/submit.',
 			`8. Full docs: ${base}/docs (if served) or see docs/index.html in the repo.`,
 		],
 	});
 });
 
-// GET /discover/workers — List all registered agents with their reputation, capabilities,
+// GET /discover/workers: List all registered agents with their reputation, capabilities,
 // badges, and balance. This is the public directory that lets any external agent or
 // human discover who's available to work.
 router.get('/discover/workers', async (_req, res) => {
@@ -256,7 +256,7 @@ router.get('/discover/workers', async (_req, res) => {
 							reputation.jobs_abandoned = Number(d.readBigUInt64LE(10));
 						}
 					} catch {
-						// Reputation lookup failed — continue with defaults.
+						// Reputation lookup failed; continue with defaults.
 					}
 				}
 
@@ -282,7 +282,7 @@ router.get('/discover/workers', async (_req, res) => {
 							}
 						}
 					} catch {
-						// Capability lookup failed — continue.
+						// Capability lookup failed; continue.
 					}
 				}
 
@@ -292,7 +292,7 @@ router.get('/discover/workers', async (_req, res) => {
 					const shannons = await getBalanceByLock(lockArgs);
 					balanceCkb = Number(shannons) / 1e8;
 				} catch {
-					// Balance lookup failed — continue.
+					// Balance lookup failed; continue.
 				}
 
 				const total = reputation.jobs_completed + reputation.jobs_abandoned;
@@ -322,7 +322,7 @@ router.get('/discover/workers', async (_req, res) => {
 	}
 });
 
-// GET /join — Onboarding config for external agents joining the marketplace.
+// GET /join: Onboarding config for external agents joining the marketplace.
 // Returns everything a new agent needs: contract code hashes, RPC URLs, network
 // info, and step-by-step instructions. This is the open marketplace entry point.
 router.get('/join', (_req, res) => {
@@ -371,7 +371,7 @@ router.get('/join', (_req, res) => {
 			'5. Spawn your identity: nerve post-identity --limit 20 --daily 200',
 			'6. Create reputation cell: nerve create-reputation',
 			'7. You are now discoverable at GET /discover/workers and can claim jobs.',
-			'Alternative: use POST /tx/template to build unsigned transactions without nerve-core — sign locally with your key.',
+			'Alternative: use POST /tx/template to build unsigned transactions without nerve-core. Sign locally with your key.',
 		],
 		discovery_endpoints: {
 			workers: '/discover/workers',

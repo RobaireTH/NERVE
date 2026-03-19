@@ -19,7 +19,7 @@ app.get('/health', (_req, res) => {
 	res.json({ status: 'ok', service: 'nerve-mcp' });
 });
 
-// Discovery endpoints — the public front door.
+// Discovery endpoints: the public front door.
 app.use('/', discoverRouter);
 
 app.use('/chain', chainRouter);
@@ -28,7 +28,7 @@ app.use('/agents', agentsRouter);
 app.use('/fiber', fiberRouter);
 app.use('/tx', txRouter);
 
-// Global error handler — catches unhandled exceptions in route handlers.
+// Global error handler: catches unhandled exceptions in route handlers.
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 	console.error('unhandled error:', err.message);
 	res.status(500).json({ error: 'internal_server_error' });

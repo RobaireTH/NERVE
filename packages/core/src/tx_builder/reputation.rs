@@ -20,13 +20,13 @@ const REP_CELL_CAPACITY: u64 = 236 * 100_000_000;
 fn rep_type_env() -> Result<(String, String), TxBuildError> {
 	let code_hash = std::env::var("REPUTATION_TYPE_CODE_HASH").map_err(|_| {
 		TxBuildError::MissingCellDep(
-			"REPUTATION_TYPE_CODE_HASH not set — run scripts/deploy_contracts.sh reputation first"
+			"REPUTATION_TYPE_CODE_HASH not set; run scripts/deploy_contracts.sh reputation first"
 				.into(),
 		)
 	})?;
 	let dep_tx_hash = std::env::var("REPUTATION_DEP_TX_HASH").map_err(|_| {
 		TxBuildError::MissingCellDep(
-			"REPUTATION_DEP_TX_HASH not set — run scripts/deploy_contracts.sh reputation first"
+			"REPUTATION_DEP_TX_HASH not set; run scripts/deploy_contracts.sh reputation first"
 				.into(),
 		)
 	})?;

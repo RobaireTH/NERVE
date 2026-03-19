@@ -45,7 +45,7 @@ for i in $(seq 1 "$MAX_POLLS"); do
 		exit 1
 	fi
 
-	echo "  poll $i/$MAX_POLLS — status: ${TX_STATUS:-unknown}, waiting ${INTERVAL}s..." >&2
+	echo "  poll $i/$MAX_POLLS: status: ${TX_STATUS:-unknown}, waiting ${INTERVAL}s..." >&2
 	sleep "$INTERVAL"
 done
 

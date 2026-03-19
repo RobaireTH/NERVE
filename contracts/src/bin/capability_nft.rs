@@ -142,7 +142,7 @@ fn verify_proof_root_in_cell_deps(
 fn validate_transfer() -> Result<(), i8> {
 	let old = load_cell_data(0, Source::GroupInput).map_err(|_| ERR_INVALID_DATA)?;
 
-	// The NFT must reappear in outputs — it cannot be silently destroyed.
+	// The NFT must reappear in outputs; it cannot be silently destroyed.
 	let new = match load_cell_data(0, Source::GroupOutput) {
 		Ok(d) => d,
 		Err(SysError::IndexOutOfBound) => return Err(ERR_NFT_DESTROYED),

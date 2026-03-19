@@ -13,7 +13,7 @@ fn parse_build_request(body: Result<Json<BuildRequest>, JsonRejection>) -> Resul
 		.map_err(|e| TxBuildError::UnknownIntent(e.body_text()))
 }
 
-/// POST /tx/build — build and sign a transaction without broadcasting.
+/// POST /tx/build: build and sign a transaction without broadcasting.
 pub async fn build_tx(
 	State(state): State<AppState>,
 	body: Result<Json<BuildRequest>, JsonRejection>,
@@ -28,7 +28,7 @@ pub struct BroadcastRequest {
 	pub tx: Value,
 }
 
-/// POST /tx/broadcast — broadcast a pre-built signed transaction.
+/// POST /tx/broadcast: broadcast a pre-built signed transaction.
 pub async fn broadcast_tx(
 	State(state): State<AppState>,
 	Json(body): Json<BroadcastRequest>,
@@ -37,7 +37,7 @@ pub async fn broadcast_tx(
 	Ok(Json(json!({ "tx_hash": tx_hash })))
 }
 
-/// POST /tx/build-and-broadcast — build, sign, and immediately broadcast.
+/// POST /tx/build-and-broadcast: build, sign, and immediately broadcast.
 pub async fn build_and_broadcast(
 	State(state): State<AppState>,
 	body: Result<Json<BuildRequest>, JsonRejection>,
@@ -53,7 +53,7 @@ pub struct TxStatusRequest {
 	pub tx_hash: String,
 }
 
-/// GET /tx/status?tx_hash=0x... — fetch transaction status.
+/// GET /tx/status?tx_hash=0x...: fetch transaction status.
 pub async fn tx_status(
 	State(state): State<AppState>,
 	axum::extract::Query(params): axum::extract::Query<TxStatusRequest>,
@@ -62,7 +62,7 @@ pub async fn tx_status(
 	Ok(Json(info))
 }
 
-/// GET /tx/fee-rate — return the current estimated fee rate.
+/// GET /tx/fee-rate: return the current estimated fee rate.
 pub async fn estimate_fee(
 	State(state): State<AppState>,
 ) -> Result<Json<Value>, TxBuildError> {

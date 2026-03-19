@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# test_spending_cap.sh — Verify the agent identity type script enforces spending limits.
+# test_spending_cap.sh: Verify the agent identity type script enforces spending limits.
 #
 # Flow:
 #   1. Spawn an agent identity cell with a 5 CKB per-tx spending limit.
-#   2. Attempt a 10 CKB transfer — should be rejected at consensus level.
-#   3. Attempt a 3 CKB transfer — should succeed.
+#   2. Attempt a 10 CKB transfer; should be rejected at consensus level.
+#   3. Attempt a 3 CKB transfer; should succeed.
 #
 # Prerequisites:
 #   - nerve-core running on :8080 with AGENT_PRIVATE_KEY set
@@ -38,7 +38,7 @@ wait_committed_and_indexed() {
 			ok "$label tx committed (poll $i)"
 			break
 		fi
-		echo "   … poll $i: $status — waiting 6s..."
+		echo "   … poll $i: $status, waiting 6s..."
 		sleep 6
 		[[ "$i" == "30" ]] && fail "$label tx not committed after 30 polls"
 	done
@@ -53,7 +53,7 @@ wait_committed_and_indexed() {
 			ok "$label cell indexed (poll $i)"
 			return 0
 		fi
-		echo "   … indexer poll $i: $cell_status — waiting 3s..."
+		echo "   … indexer poll $i: $cell_status, waiting 3s..."
 		sleep 3
 	done
 	fail "$label cell not indexed after 60s"
@@ -90,7 +90,7 @@ wait_committed_and_indexed "$SPAWN_TX" "0x0" "identity"
 
 # Step 2: Attempt 10 CKB transfer (should fail)
 
-step "2. Attempting 10 CKB transfer (should FAIL — exceeds 5 CKB limit)"
+step "2. Attempting 10 CKB transfer (should FAIL; exceeds 5 CKB limit)"
 
 # Get a dummy lock_args to transfer to (just use a zero-padded one for testing).
 TARGET_LOCK_ARGS="0x0000000000000000000000000000000000000001"
@@ -110,7 +110,7 @@ fi
 
 # Step 3: Attempt 3 CKB transfer (should succeed)
 
-step "3. Attempting 3 CKB transfer (should SUCCEED — within 5 CKB limit)"
+step "3. Attempting 3 CKB transfer (should SUCCEED; within 5 CKB limit)"
 SMALL_RESP=$(curl -sf -X POST "$CORE_URL/tx/build-and-broadcast" \
 	-H "Content-Type: application/json" \
 	-d "{\"intent\":\"transfer\",\"to_lock_args\":\"$TARGET_LOCK_ARGS\",\"amount_ckb\":3}" 2>&1) || true
