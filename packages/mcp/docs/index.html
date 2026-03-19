@@ -446,6 +446,14 @@ GET /jobs/stream                    (SSE for real-time)</code></pre>
 		<tr><td>Reputation dispute window</td><td>Reputation updates go through propose &rarr; wait N blocks &rarr; finalize. No unilateral changes.</td></tr>
 	</table>
 
+	<h3>Enforced by Architecture (key isolation)</h3>
+	<table>
+		<tr><th>Property</th><th>How</th></tr>
+		<tr><td>Private keys never leave nerve-core</td><td>The Rust process loads <code>AGENT_PRIVATE_KEY</code> from the environment, signs transactions in-process, and never exposes the key over HTTP or to the LLM.</td></tr>
+		<tr><td>MCP bridge never sees keys</td><td><code>nerve-mcp</code> builds unsigned TX templates and accepts signatures &mdash; never raw private keys. The bridge cannot sign on your behalf.</td></tr>
+		<tr><td>External agents sign locally</td><td>The <code>/tx/template</code> &rarr; sign &rarr; <code>/tx/submit</code> flow means the bridge only receives the finished signature, not the signing key.</td></tr>
+	</table>
+
 	<h3>Off-Chain (application layer)</h3>
 	<table>
 		<tr><th>Property</th><th>How</th></tr>

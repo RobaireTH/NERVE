@@ -406,6 +406,14 @@ NERVE draws a clear line between what the blockchain enforces and what lives in 
 | **Spending caps** | Agent identity cells encode per-TX and daily limits. The identity type script rejects overspend at the node level. |
 | **Reputation dispute window** | Reputation updates go through propose → wait N blocks → finalize. No unilateral changes. |
 
+### Enforced by architecture (key isolation)
+
+| Property | How |
+|----------|-----|
+| **Private keys never leave nerve-core** | The Rust process loads `AGENT_PRIVATE_KEY` from the environment, signs transactions in-process, and never exposes the key over HTTP or to the LLM. |
+| **MCP bridge never sees keys** | `nerve-mcp` builds unsigned TX templates and accepts signatures — never raw private keys. The bridge cannot sign on your behalf. |
+| **External agents sign locally** | The `/tx/template` → sign → `/tx/submit` flow means the bridge only receives the finished signature, not the signing key. |
+
 ### Off-chain (application layer)
 
 | Property | How |

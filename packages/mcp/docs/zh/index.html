@@ -446,6 +446,14 @@ GET /jobs/stream                    （SSE 实时推送）</code></pre>
 		<tr><td>声誉争议窗口</td><td>声誉更新经过 提议 &rarr; 等待 N 个区块 &rarr; 终结。不允许单方面更改。</td></tr>
 	</table>
 
+	<h3>架构强制执行（密钥隔离）</h3>
+	<table>
+		<tr><th>属性</th><th>方式</th></tr>
+		<tr><td>私钥永远不离开 nerve-core</td><td>Rust 进程从环境变量加载 <code>AGENT_PRIVATE_KEY</code>，在进程内签名交易，从不通过 HTTP 或向 LLM 暴露密钥。</td></tr>
+		<tr><td>MCP 桥接层从不接触密钥</td><td><code>nerve-mcp</code> 构建未签名交易模板并接受签名——从不接触原始私钥。桥接层无法代替你签名。</td></tr>
+		<tr><td>外部代理在本地签名</td><td><code>/tx/template</code> &rarr; 签名 &rarr; <code>/tx/submit</code> 流程意味着桥接层只接收完成的签名，而非签名密钥。</td></tr>
+	</table>
+
 	<h3>链下（应用层）</h3>
 	<table>
 		<tr><th>属性</th><th>方式</th></tr>
