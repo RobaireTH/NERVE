@@ -26,8 +26,11 @@ if [[ -n "$STATUS" ]]; then
 	QUERY="?status=$STATUS"
 fi
 if [[ -n "$CAPABILITY_HASH" ]]; then
-	SEP="${QUERY:+&}${QUERY:-?}"
-	QUERY="${QUERY}${SEP}capability_hash=$CAPABILITY_HASH"
+	if [[ -n "$QUERY" ]]; then
+		QUERY="${QUERY}&capability_hash=$CAPABILITY_HASH"
+	else
+		QUERY="?capability_hash=$CAPABILITY_HASH"
+	fi
 fi
 
 curl -sf "$MCP_URL/jobs${QUERY}"

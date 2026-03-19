@@ -304,14 +304,11 @@ You ARE the task executor. Reason through the task based on the job's `capabilit
    d. Execute the service-specific payment via fiber-pay CLI.
    e. Generate proof of payment (receipt ID, confirmation, etc.) as the result string.
 
-Compute the `result_hash` by hashing the result string:
-```
-echo -n "<result string>" | sha256sum | awk '{print "0x"$1}'
-```
-
-Update the in-flight record: set `result_hash` to the computed hash. Write to Memory immediately.
+Update the in-flight record with the result string. Write to Memory immediately.
 
 ### 4d. Complete
+
+Pass the raw result string — the server computes the blake2b binding hash internally.
 
 ```
 POST http://localhost:8080/tx/build-and-broadcast
@@ -320,7 +317,7 @@ POST http://localhost:8080/tx/build-and-broadcast
   "job_tx_hash": "<claim_tx>",
   "job_index": 0,
   "worker_lock_args": "<lock_args from Step 1>",
-  "result_hash": "<result_hash from Step 4c>"
+  "result": "<result string from Step 4c>"
 }
 ```
 

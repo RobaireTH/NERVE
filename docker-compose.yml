@@ -35,7 +35,7 @@ services:
 		healthcheck:
 			test: ["CMD", "curl", "-sf", "-X", "POST", "http://localhost:8227",
 			       "-H", "Content-Type: application/json",
-			       "-d", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"info_node_info\",\"params\":{}}"]
+			       "-d", "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"node_info\",\"params\":{}}"]
 			interval: 15s
 			timeout: 5s
 			retries: 5

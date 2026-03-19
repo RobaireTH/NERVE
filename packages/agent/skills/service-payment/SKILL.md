@@ -127,14 +127,10 @@ Given job parameters (from the supervisor or autonomous worker):
    ```
    Write to Memory immediately.
 3. Execute the service-specific payment action. The result is a proof string (receipt ID, confirmation number, transaction reference, etc.).
-4. Compute `result_hash` from the proof string:
-   ```
-   echo -n "<proof string>" | sha256sum | awk '{print "0x"$1}'
-   ```
 
 ### Step 4 — Complete On-Chain
 
-1. Complete the job:
+1. Complete the job (pass the raw proof string — the server computes the blake2b binding hash internally):
    ```
    POST http://localhost:8080/tx/build-and-broadcast
    {
@@ -142,7 +138,7 @@ Given job parameters (from the supervisor or autonomous worker):
      "job_tx_hash": "<claim_tx>",
      "job_index": 0,
      "worker_lock_args": "<lock_args>",
-     "result_hash": "<result_hash>"
+     "result": "<proof string>"
    }
    ```
 2. Update the active record: set `stage` to `completed`.

@@ -82,16 +82,16 @@ WORKER_REP_TX=$(post_tx "$WORKER_URL" '{"intent":"create_reputation"}') \
 ok "Worker reputation: $WORKER_REP_TX:0"
 wait_tx
 
-# Step 5.5: Spawn sub-agent under poster
+# Step 6: Spawn sub-agent under poster
 
-step "Step 5.5: Spawning sub-agent under poster (10% revenue share)"
+step "Step 6: Spawning sub-agent under poster (10% revenue share)"
 SUB_AGENT_TX=$(post_tx "$POSTER_URL" \
 	'{"intent":"spawn_sub_agent","spending_limit_ckb":10,"daily_limit_ckb":100,"revenue_share_bps":1000}') \
 	|| fail "poster spawn_sub_agent failed"
 ok "Sub-agent identity: $SUB_AGENT_TX:0"
 wait_tx
 
-# Step 6: Mint capability NFT for worker
+# Step 7: Mint capability NFT for worker
 
 step "Step 7: Minting capability NFT for worker (text_summarize)"
 # blake2b("text_summarize") — hardcoded for demo.

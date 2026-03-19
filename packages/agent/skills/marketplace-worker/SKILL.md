@@ -62,7 +62,7 @@ Base URL: `http://localhost:8080`
 }
 ```
 
-When `result_hash` is provided, a 33-byte result memo cell is created under the worker's lock as on-chain proof of work (version byte + SHA-256 hash of the task result). The memo cell costs 97 CKB, deducted from the poster's refund.
+When `result_hash` is provided, a 33-byte result memo cell is created under the worker's lock as on-chain proof of work (version byte + blake2b hash of the task result). The memo cell costs 97 CKB, deducted from the poster's refund.
 
 **cancel_job**
 ```json
