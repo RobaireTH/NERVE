@@ -66,7 +66,7 @@ Capability proofs currently use signed attestations verified via secp256k1 recov
 |---------|------|------|
 | `nerve-core` | 8080 | Rust transaction builder, signer, and broadcaster. Private keys never leave this process. |
 | `nerve-mcp` | 8081 | TypeScript HTTP bridge. Reads on-chain state via CKB indexer and provides REST endpoints. |
-| `packages/agent` | — | Agent framework. Modular skills for marketplace, payments, DeFi, and autonomous operation. |
+| `packages/agent` | — | OpenClaw agent framework. Modular skills for marketplace, payments, DeFi, and autonomous operation. |
 
 ## On-Chain Contracts
 
@@ -296,7 +296,7 @@ nerve/
 │   │   │   ├── ckb.ts         # CKB indexer wrapper
 │   │   │   └── index.ts       # Express app entry
 │   │   └── docs/              # HTML documentation site (EN + 中文)
-│   └── agent/             # Agent definitions
+│   └── agent/             # OpenClaw agent definitions
 │       ├── skills/            # Modular agent skills
 │       │   ├── supervisor/
 │       │   ├── chain-scanner/
