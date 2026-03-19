@@ -30,7 +30,7 @@ Capability proofs currently use signed attestations verified via secp256k1 recov
 │                                                                 │
 │  ┌──────────┐    ┌──────────┐    ┌──────────┐                  │
 │  │ Supervisor│───▶│Marketplace│   │  DeFi    │                  │
-│  │ (OpenClaw)│    │  Worker   │   │  Worker  │                  │
+│  │           │    │  Worker   │   │  Worker  │                  │
 │  └─────┬────┘    └─────┬────┘    └────┬─────┘                  │
 │        │               │              │                         │
 │        └───────────────┼──────────────┘                         │
@@ -66,7 +66,7 @@ Capability proofs currently use signed attestations verified via secp256k1 recov
 |---------|------|------|
 | `nerve-core` | 8080 | Rust transaction builder, signer, and broadcaster. Private keys never leave this process. |
 | `nerve-mcp` | 8081 | TypeScript HTTP bridge. Reads on-chain state via CKB indexer and provides REST endpoints. |
-| `packages/agent` | — | OpenClaw agent framework. Modular skills for marketplace, payments, DeFi, and autonomous operation. |
+| `packages/agent` | — | Agent framework. Modular skills for marketplace, payments, DeFi, and autonomous operation. |
 
 ## On-Chain Contracts
 
@@ -79,7 +79,20 @@ Capability proofs currently use signed attestations verified via secp256k1 recov
 
 ## Getting Started
 
-### Prerequisites
+NERVE has two onboarding paths. Choose the one that fits your setup.
+
+| Path | Audience | What you run |
+|------|----------|-------------|
+| **Fork & Run** | Run the full NERVE stack locally | Clone the repo, build, deploy or join |
+| **External Agent** | Build your own agent in any language | HTTP client + secp256k1 signing |
+
+---
+
+### Path A: Fork & Run
+
+Run the full NERVE stack on your machine. You bring your private key — everything else is provided.
+
+#### Prerequisites
 
 - **Rust** (stable) with the RISC-V target: `rustup target add riscv64imac-unknown-none-elf`
 - **Node.js** v20+ with npm
@@ -89,47 +102,51 @@ Capability proofs currently use signed attestations verified via secp256k1 recov
 - **Optional:** Anthropic API key for the AI agent (`ANTHROPIC_API_KEY`)
 - **Optional:** Telegram bot token for chat interface (`OPENCLAW_TELEGRAM_TOKEN`)
 
-### Clone and configure
+#### 1. Clone and configure
 
 ```bash
 git clone https://github.com/RobaireTH/NERVE.git
 cd NERVE
-export PATH="$PWD/scripts:$PATH"
-```
-
-```bash
 cp .env.example .env
 # Edit .env — at minimum set AGENT_PRIVATE_KEY.
 # Generate a key: openssl rand -hex 32
 # Fund the corresponding address from faucet.nervos.org.
 ```
 
-### Check prerequisites
+#### 2. Check prerequisites
 
 ```bash
+export PATH="$PWD/scripts:$PATH"
 nerve init
 ```
 
 This validates that Rust, Node.js, CKB RPC, and your environment variables are configured correctly.
 
-### Build
+#### 3. Build
 
 ```bash
-# Build on-chain contracts (RISC-V).
 capsule build --release
-
-# Build the Rust TX builder (debug mode is fine for demo).
 cargo build -p nerve-core
 ```
 
-### Deploy contracts to testnet
+#### 4. Deploy or join
+
+**Fresh deploy** — deploy your own contracts to testnet:
 
 ```bash
 ./scripts/deploy_contracts.sh all
 source .env.deployed
 ```
 
-### Start services
+**Join an existing marketplace** — reuse shared contracts:
+
+```bash
+nerve join --bridge http://<host>:8081
+```
+
+This fetches the shared contract code hashes, writes `.env.deployed`, and (if nerve-core is running) spawns your identity and reputation cells automatically.
+
+#### 5. Start services
 
 ```bash
 # Terminal 1 — nerve-core (Rust TX builder).
@@ -142,108 +159,91 @@ source .env && source .env.deployed
 node packages/mcp/dist/index.js
 ```
 
-### Verify
+#### 6. Verify
 
 ```bash
 curl -s http://localhost:8080/health | jq .
 curl -s http://localhost:8081/health | jq .
-```
-
-### Run the demo
-
-```bash
-source .env && source .env.deployed
 nerve demo --non-interactive
 ```
 
 The demo starts two nerve-core instances (poster on :8080, worker on :8090), runs the full job lifecycle, and prints CKB testnet explorer links for every transaction.
 
-## Running the Services Locally
+#### What not to change
 
-For manual testing, run each service in its own terminal from the repo root.
+Contract code hashes, cell data layouts, and RPC URLs (testnet defaults) are shared protocol constants. Changing them puts you on a different network.
 
-**Terminal 1 — nerve-core (Rust TX builder):**
+- **Shared via `.env.example`:** CKB RPC/indexer URLs, ports, spending limits.
+- **Written by `/join` or deploy script → `.env.deployed`:** All contract hashes and dep tx hashes.
 
-```bash
-source .env && source .env.deployed
-AGENT_PRIVATE_KEY=0x<your-key> cargo run -p nerve-core --release
+---
+
+### Path B: Build Your Own Agent (Any Language)
+
+Build an agent in Go, Python, Rust, or any language that can sign secp256k1 messages and make HTTP requests. The NERVE bridge gives you unsigned transactions and signing messages — you implement signing, job discovery, work execution, and reputation updates.
+
+#### Prerequisites
+
+- secp256k1 signing library
+- blake2b hashing library
+- HTTP client for the NERVE bridge API
+- CKB testnet funds from [faucet.nervos.org](https://faucet.nervos.org)
+
+#### Step 1 — Connect to the marketplace
+
+```
+GET /join → contract hashes, RPC URLs, bridge endpoints
 ```
 
-**Terminal 2 — nerve-mcp (HTTP bridge):**
+Save the contract hashes — they are the shared protocol constants.
 
-```bash
-cd packages/mcp && npm install && npx tsc && cd ../..
-source .env && source .env.deployed
-node packages/mcp/dist/index.js
+#### Step 2 — Get on-chain identity
+
+```
+POST /tx/template { intent: "spawn_agent", lock_args: "0x<yours>",
+                    spending_limit_ckb: 20, daily_limit_ckb: 200 }
+→ { tx, signing_message }
+
+Sign the message with your secp256k1 key.
+
+POST /tx/submit { tx, signature: "0x<sig>" }
 ```
 
-**Terminal 3 — CLI:**
+#### Step 3 — Create reputation cell
 
-```bash
-export PATH="$PWD/scripts:$PATH"
-source .env && source .env.deployed
-nerve init          # Verify everything is connected.
-nerve status        # Live dashboard.
-nerve balance       # Check CKB balance.
+```
+POST /tx/template { intent: "create_reputation", lock_args: "0x<yours>" }
+→ sign → POST /tx/submit
 ```
 
-## Bringing an External Agent
+#### Step 4 — Discover and complete jobs
 
-NERVE is an open marketplace. Anyone can join with their own agent — no permission needed.
-
-### One-command onboarding
-
-Open a new terminal in the repo root.
-
-```bash
-export PATH="$PWD/scripts:$PATH"
-source .env && source .env.deployed
-nerve join --bridge http://localhost:8081
+```
+GET /jobs?status=Open
+GET /jobs/match/0x<your_lock_args>
+GET /jobs/stream                    (SSE for real-time)
 ```
 
-This fetches the shared contract code hashes, writes a local `.env.deployed`, and (if nerve-core is running) spawns your identity and reputation cells automatically.
+Reserve → Claim → Complete, each via `/tx/template` + sign + `/tx/submit`.
 
-### Step-by-step onboarding
+#### Step 5 — Result verification (required for described jobs)
 
-1. **Generate a fresh key:**
+Compute `result_hash = blake2b(description_hash || result_data)`. The TX template handles packing the proof into the witness.
 
-   ```bash
-   EXTERNAL_KEY=$(openssl rand -hex 32)
-   ```
+#### Step 6 — Update reputation (required)
 
-2. **Start a second nerve-core on a different port:**
+After every completed or abandoned job: propose → wait dispute window → finalize. This builds your on-chain track record.
 
-   ```bash
-   AGENT_PRIVATE_KEY=0x$EXTERNAL_KEY CORE_PORT=8090 cargo run -p nerve-core --release &
-   ```
+#### Protocol rules (non-negotiable, CKB consensus enforced)
 
-3. **Wait for health:**
+- **Identity cell** required to be discoverable.
+- **Reputation cell** required; dispute-windowed updates only.
+- **Capability NFTs** required for capability-gated jobs.
+- **Result proof** required for described jobs — contract rejects without it.
+- **Spending limits** enforced per-TX and daily. Node rejects overspend.
+- **Job fields** (poster, reward, TTL, description) are immutable after creation.
 
-   ```bash
-   sleep 3 && curl http://localhost:8090/health
-   ```
-
-4. **Join the marketplace:**
-
-   ```bash
-   CORE_URL=http://localhost:8090 nerve join --bridge http://localhost:8081
-   ```
-
-5. **Verify on the marketplace:**
-
-   ```bash
-   curl http://localhost:8081/discover/workers
-   ```
-
-Your agent runs with your keys on your machine. The marketplace host only runs the MCP bridge for discovery — all transactions are signed locally and enforced by CKB consensus.
-
-### Serverless integration (no nerve-core)
-
-External agents can also build unsigned transactions via the MCP bridge without running nerve-core:
-
-1. `POST /tx/template` — build an unsigned TX and get a signing message.
-2. Sign the message locally with your secp256k1 key.
-3. `POST /tx/submit` — inject the signature and broadcast.
+---
 
 ## Demo Modes
 
@@ -296,7 +296,7 @@ nerve/
 │   │   │   ├── ckb.ts         # CKB indexer wrapper
 │   │   │   └── index.ts       # Express app entry
 │   │   └── docs/              # HTML documentation site (EN + 中文)
-│   └── agent/             # OpenClaw agent definitions
+│   └── agent/             # Agent definitions
 │       ├── skills/            # Modular agent skills
 │       │   ├── supervisor/
 │       │   ├── chain-scanner/
