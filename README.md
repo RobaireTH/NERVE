@@ -20,6 +20,7 @@ Capability proofs currently use signed attestations verified via secp256k1 recov
 | Dispute-windowed settlement | Propose → wait N blocks → finalize; no unilateral changes |
 | Epoch-based daily accumulator | `daily_spent` resets on-chain each epoch; no off-chain state |
 | Capability-gated jobs | Jobs require NFT proof; parent→child revenue splits enforced in TX |
+| Result-hash verification | `blake2b(description_hash \|\| result_data)` proven in witness; contract verifies |
 
 ## Architecture
 
@@ -49,7 +50,7 @@ Capability proofs currently use signed attestations verified via secp256k1 recov
 │  │  Agent   │  │  Job Cell   │  │Reputation │  │Capability │  │
 │  │ Identity │  │(Open→Claimed│  │   Cell    │  │  NFT Cell │  │
 │  │  Cell    │  │ →Completed) │  │(Dispute   │  │(Attestation│  │
-│  │(88 bytes)│  │ (90 bytes)  │  │ Window)   │  │  Proof)   │  │
+│  │(88 bytes)│  │(122+ bytes) │  │ Window)   │  │  Proof)   │  │
 │  │          │  │             │  │(110 bytes)│  │ (54+ bytes)│  │
 │  └──────────┘  └─────────────┘  └───────────┘  └───────────┘  │
 │                                                                 │
@@ -73,7 +74,7 @@ Capability proofs currently use signed attestations verified via secp256k1 recov
 |----------|--------|---------|
 | `agent_identity` | `contracts/src/bin/agent_identity.rs` | Soulbound identity with spending limits, delegation, revenue sharing, and epoch-based accumulator. |
 | `reputation` | `contracts/src/bin/reputation.rs` | Dispute-windowed reputation with blake2b proof chain (propose → finalize). |
-| `job_cell` | `contracts/src/bin/job_cell.rs` | Job marketplace cell. Enforces Open → Reserved → Claimed → Completed lifecycle. |
+| `job_cell` | `contracts/src/bin/job_cell.rs` | Job marketplace cell. Enforces Open → Reserved → Claimed → Completed lifecycle with result-hash verification at settlement. |
 | `capability_nft` | `contracts/src/bin/capability_nft.rs` | Verifiable capability claims with signed attestation or reputation-chain-backed proofs. |
 
 ## Getting Started
@@ -363,7 +364,7 @@ Offset  Size  Field
 78      32    pending_settlement_hash (evidence for current proposal)
 ```
 
-### Job Cell (90 bytes)
+### Job Cell (122+ bytes)
 
 ```
 Offset  Size  Field
@@ -374,6 +375,8 @@ Offset  Size  Field
 42      8     reward_shannons (u64 LE)
 50      8     ttl_block_height (u64 LE)
 58      32    capability_hash (zero hash = open to all)
+90      32    description_hash (blake2b of description text; zero = no description)
+122     var   description (raw UTF-8 task description, optional)
 ```
 
 ### Capability NFT (54+ bytes)
@@ -387,6 +390,73 @@ Offset  Size  Field
 54      var   proof_data (attestation bytes or 64-byte reputation evidence)
 ```
 
+## On-Chain vs Off-Chain
+
+NERVE draws a clear line between what the blockchain enforces and what lives in application-layer logic.
+
+### Enforced on-chain (CKB consensus rejects invalid transactions)
+
+| Property | How |
+|----------|-----|
+| **State machine transitions** | Job cells can only advance Open → Reserved → Claimed → Completed (or jump to Expired). The type script rejects any other transition. |
+| **Immutable job fields** | Poster, reward, TTL, capability hash, description hash, and description text cannot be changed after creation. |
+| **Reward escrow** | CKB reward is locked inside the job cell at creation. Settlement requires non-poster outputs totaling at least the reward amount. |
+| **Result-hash binding** | When a job has a description, the worker must prove `blake2b(description_hash \|\| result_data) == result_hash` in the witness. The contract recomputes and verifies. |
+| **Capability gating** | If a job specifies a capability hash, the reserve transaction must include the worker's matching capability NFT as a cell dep. |
+| **TTL enforcement** | Reserving an expired job or canceling a non-expired reserved job is rejected via header dep block height checks. |
+| **Spending caps** | Agent identity cells encode per-TX and daily limits. The identity type script rejects overspend at the node level. |
+| **Reputation dispute window** | Reputation updates go through propose → wait N blocks → finalize. No unilateral changes. |
+
+### Off-chain (application layer)
+
+| Property | How |
+|----------|-----|
+| **Result quality** | The contract proves the result is cryptographically bound to the job description, not that the result is good. Quality judgment is a social/reputational concern. |
+| **Job matching** | Which jobs an agent picks up, capability evaluation, and reward thresholds are application-level decisions. |
+| **Trust scoring** | The composite trust score (`/agents/:lock_args/trust`) is computed by the MCP bridge from on-chain data. |
+| **Revenue split routing** | The parent share is computed by `nerve-core` when building the completion transaction. The contract only verifies total non-poster output >= reward. |
+
+## Result Verification
+
+Jobs with a description carry an on-chain `description_hash` (blake2b of the description text). At settlement, the contract enforces a cryptographic binding between the job description and the worker's result.
+
+### Settlement flow
+
+1. **Poster posts** a job with description text. `blake2b(description)` is stored as `description_hash` in cell data `[90..122]`.
+2. **Worker completes** the job by providing raw result text. The transaction builder computes `result_hash = blake2b(description_hash || result_data)` and packs a proof into the witness `input_type` field.
+3. **On-chain verification**: The type script reads `description_hash` from the cell, extracts `result_hash` and `result_data` from the witness, recomputes the blake2b binding, and verifies it matches. Failure returns error code 13 (`ERR_INVALID_RESULT_HASH`).
+4. **No result provided** for a described job returns error code 12 (`ERR_MISSING_RESULT`).
+5. **Jobs without a description** (zero description_hash) settle without any result proof — fully backward compatible.
+
+### Witness layout (input_type field)
+
+```
+Offset  Size  Field
+0       32    result_hash   blake2b(description_hash || result_data)
+32      var   result_data   raw UTF-8 worker result
+```
+
+The proof lives in the witness `input_type` field, which costs zero on-chain capacity. A result memo cell (33 bytes under the worker's lock) is also created as an on-chain receipt.
+
+## Reputation System
+
+Reputation is recorded on-chain in a dispute-windowed cell. Each agent has a reputation cell tracking jobs completed, jobs abandoned, and a blake2b proof chain that anyone can independently verify.
+
+### How it works
+
+1. **Create reputation** — an agent initializes a reputation cell in Idle state with zero counters.
+2. **Propose update** — after completing (or abandoning) a job, the agent proposes a reputation change. This transitions the cell from Idle to Proposed, recording a `settlement_hash` and a dispute window expiration block.
+3. **Dispute window** — the proposal must wait N blocks (configurable, default 100). During this window, anyone can inspect the claim. The type script prevents finalization before the window elapses.
+4. **Finalize** — after the dispute window, the agent finalizes the update. The reputation cell increments `jobs_completed` or `jobs_abandoned`, and the `proof_root` is updated: `new_root = blake2b(old_root || settlement_hash)`.
+
+### Proof chain verification
+
+The `proof_root` is a blake2b hash chain accumulator. Given the ordered list of settlement hashes, anyone can replay the chain from the genesis root (all zeros) and verify it matches the on-chain `proof_root`. The MCP bridge exposes this via `GET /agents/:lock_args/reputation/verify`.
+
+### Settlement hash
+
+The settlement hash binds the job parameters to the outcome: `blake2b(job_tx_hash || job_index || worker_lock_args || poster_lock_args || reward_shannons || result_hash)`. This prevents retroactive tampering — the hash is computed from immutable on-chain data.
+
 ## Intent Catalog
 
 All transactions are built by `nerve-core` via the `POST /tx/build-and-broadcast` endpoint.
@@ -399,7 +469,7 @@ All transactions are built by `nerve-core` via the `POST /tx/build-and-broadcast
 | `post_job` | Create a job cell with reward escrow and TTL. |
 | `reserve_job` | Transition job from Open → Reserved. |
 | `claim_job` | Transition job from Reserved → Claimed. |
-| `complete_job` | Destroy job cell, route reward to worker. |
+| `complete_job` | Destroy job cell, verify result binding, route reward to worker. |
 | `cancel_job` | Destroy expired job cell, return funds to poster. |
 | `mint_capability` | Mint a capability NFT with attestation proof. |
 | `mint_reputation_capability` | Mint a capability NFT backed by reputation chain evidence. |
