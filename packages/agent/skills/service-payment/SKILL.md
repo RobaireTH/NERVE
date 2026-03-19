@@ -22,7 +22,7 @@ This skill is authorized to execute Fiber payments autonomously within the bound
 - MCP HTTP Bridge: `http://localhost:8081`
 - fiber-pay CLI: local binary (`npx @fiber-pay/cli` or `fiber-pay` if globally installed)
 
-**All HTTP calls MUST use `curl` via the `exec` tool.** Do NOT use `web_fetch` — it cannot reach localhost.
+**All HTTP calls MUST use `curl` via the `exec` tool.** Do NOT use `web_fetch`. It cannot reach localhost.
 **All fiber-pay calls MUST use the `exec` tool** with `--json` flag for structured output.
 
 ## Memory Key Schema
@@ -75,7 +75,7 @@ Valid `stage` values: `accepted`, `paying`, `completed`, `failed`.
 
 ## Payment Execution Flow
 
-### Step 1 — Preflight
+### Step 1: Preflight
 
 1. Read `nerve:service:config` from Memory.
 2. Read `nerve:service:active` from Memory (default `[]`).
@@ -94,7 +94,7 @@ Valid `stage` values: `accepted`, `paying`, `completed`, `failed`.
    ```
 5. Check rate limit: count entries in `nerve:service:log` from the last hour. If >= `rate_limit_per_hour`, exit gracefully.
 
-### Step 2 — Read Job Details
+### Step 2: Read Job Details
 
 Given job parameters (from the supervisor or autonomous worker):
 
@@ -107,7 +107,7 @@ Given job parameters (from the supervisor or autonomous worker):
 4. Parse the service type from the job metadata or capability_hash mapping.
 5. Verify the service is in `supported_services`.
 
-### Step 3 — Execute Payment
+### Step 3: Execute Payment
 
 1. Create a hold invoice for the escrow amount:
    ```
@@ -128,9 +128,9 @@ Given job parameters (from the supervisor or autonomous worker):
    Write to Memory immediately.
 3. Execute the service-specific payment action. The result is a proof string (receipt ID, confirmation number, transaction reference, etc.).
 
-### Step 4 — Complete On-Chain
+### Step 4: Complete On-Chain
 
-1. Complete the job (pass the raw proof string — the server computes the blake2b binding hash internally):
+1. Complete the job (pass the raw proof string; the server computes the blake2b binding hash internally):
    ```
    POST http://localhost:8080/tx/build-and-broadcast
    {
@@ -159,7 +159,7 @@ Given job parameters (from the supervisor or autonomous worker):
    }
    ```
 
-### Step 5 — Log and Cleanup
+### Step 5: Log and Cleanup
 
 1. Move the completed record from `nerve:service:active` to `nerve:service:log`.
 2. Cap `nerve:service:log` at 50 entries.

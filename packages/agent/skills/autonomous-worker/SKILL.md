@@ -21,7 +21,7 @@ This skill is explicitly authorized to take on-chain actions autonomously. This 
 - TX Builder: `http://localhost:8080`
 - MCP HTTP Bridge: `http://localhost:8081`
 
-**All HTTP calls MUST use `curl` via the `exec` tool.** Do NOT use `web_fetch` — it cannot reach localhost. Examples:
+**All HTTP calls MUST use `curl` via the `exec` tool.** Do NOT use `web_fetch`. It cannot reach localhost. Examples:
 - GET: `curl -sf http://localhost:8081/jobs?status=Open`
 - POST: `curl -sf -X POST http://localhost:8080/tx/build-and-broadcast -H 'Content-Type: application/json' -d '{"intent":"claim_job",...}'`
 
@@ -88,7 +88,7 @@ reserved  → claimed  → completed
 - `completed`: Complete TX confirmed. Terminal success state.
 - `failed`: Terminal failure state. The `error` field explains why.
 
-## Step 1 — Preflight
+## Step 1: Preflight
 
 1. Read `nerve:auto:config` from Memory. If absent, use the defaults above.
 2. Read `nerve:auto:identity` from Memory. If set, this worker operates as a sub-agent under
@@ -102,7 +102,7 @@ reserved  → claimed  → completed
    ```
    Response: `{ "lock_args": "0x...", "balance_ckb": 150.5, ... }`
 6. If `nerve:auto:identity` was set, override `lock_args` with that value. Otherwise save
-   `lock_args` from the balance response — you will need it for reserve and complete calls.
+   `lock_args` from the balance response. You will need it for reserve and complete calls.
 7. Check daily spending budget:
    ```
    GET http://localhost:8081/agents/<lock_args>/spending
@@ -115,14 +115,14 @@ reserved  → claimed  → completed
    ```
    fiber-pay node ready --json
    ```
-   If not ready, log a warning but continue — Fiber is optional for non-payment jobs.
+   If not ready, log a warning but continue. Fiber is optional for non-payment jobs.
 11. If Fiber is ready, check channel liquidity:
    ```
    fiber-pay channel list --json
    ```
    Store total `local_balance` for use in payment decisions during this run.
 
-## Step 2 — Resume In-Flight Jobs
+## Step 2: Resume In-Flight Jobs
 
 For each record in `nerve:auto:inflight` where stage is NOT `completed` or `failed`:
 
@@ -191,7 +191,7 @@ If a TX call returns an error:
 
 Always write the updated inflight list to Memory after each error.
 
-## Step 3 — Scan and Select New Jobs
+## Step 3: Scan and Select New Jobs
 
 Skip this step if:
 - Active in-flight count >= `max_concurrent_jobs`.
@@ -247,7 +247,7 @@ For each job in the response, apply these filters in order:
 
 Sort remaining jobs by `reward_ckb` descending (highest reward first). Select up to `max_concurrent_jobs - active_inflight_count` jobs.
 
-## Step 4 — Execute Job Lifecycle
+## Step 4: Execute Job Lifecycle
 
 For each selected job from Step 3:
 
@@ -308,7 +308,7 @@ Update the in-flight record with the result string. Write to Memory immediately.
 
 ### 4d. Complete
 
-Pass the raw result string — the server computes the blake2b binding hash internally.
+Pass the raw result string. The server computes the blake2b binding hash internally.
 
 ```
 POST http://localhost:8080/tx/build-and-broadcast
@@ -342,9 +342,9 @@ POST http://localhost:8080/tx/build-and-broadcast
 }
 ```
 
-If successful: update the record `badge_tx` with the new tx_hash. Badge minting failure is **non-fatal** — log the error but do NOT mark the job as failed. The job was already completed successfully.
+If successful: update the record `badge_tx` with the new tx_hash. Badge minting failure is **non-fatal**. Log the error but do NOT mark the job as failed. The job was already completed successfully.
 
-## Step 5 — Log and Report
+## Step 5: Log and Report
 
 ### 5a. Move completed/failed records to log
 

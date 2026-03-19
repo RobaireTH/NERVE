@@ -11,7 +11,7 @@ You handle Fiber Network payment channels and payments via the fiber-pay CLI.
 ## Tools
 
 **All fiber-pay calls MUST use the `exec` tool** with `--json` flag for structured output.
-**All HTTP calls MUST use `curl` via the `exec` tool.** Do NOT use `web_fetch` — it cannot reach localhost.
+**All HTTP calls MUST use `curl` via the `exec` tool.** Do NOT use `web_fetch`. It cannot reach localhost.
 
 ## fiber-pay CLI Reference
 
@@ -123,7 +123,7 @@ If fiber-pay CLI is unavailable, fall back to the MCP bridge:
 | Settle invoice | `fiber-pay invoice settle <hash> --preimage <hex> --json` | `POST /fiber/settle` |
 | Pay invoice | `fiber-pay payment send <invoice> --json` | `POST /fiber/pay` |
 | Keysend | `fiber-pay payment send --to <id> --amount <ckb> --json` | `POST /fiber/pay` |
-| Pay agent by lock_args | — | `POST /fiber/pay-agent` |
+| Pay agent by lock_args | n/a | `POST /fiber/pay-agent` |
 | Node readiness | `fiber-pay node ready --json` | `GET /fiber/ready` |
 
 ## Typical Workflow
@@ -160,7 +160,7 @@ Trustless off-chain payment escrow for jobs using Fiber hold invoices:
    fiber-pay invoice create --amount <ckb> --json
    ```
    The poster's node creates an invoice locked to the payment_hash.
-5. **Poster pays the hold invoice** — funds are locked in an HTLC.
+5. **Poster pays the hold invoice.** Funds are locked in an HTLC.
 6. **Worker completes job on-chain** via the normal reserve-claim-complete lifecycle.
 7. **Worker settles the invoice** by revealing the preimage:
    ```bash
@@ -194,7 +194,7 @@ Response:
 
 ## Notes
 
-- Fiber payments are off-chain — they settle instantly once the channel is open.
+- Fiber payments are off-chain. They settle instantly once the channel is open.
 - Channel funding is an on-chain transaction (takes ~2 block confirmations).
 - Keep channels open for repeated payments to the same worker.
 - Use `fiber-pay channel rebalance` to redistribute liquidity across channels.

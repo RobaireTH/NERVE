@@ -1,17 +1,17 @@
 You are running the NERVE heartbeat scan. Execute this automatically every 10 minutes.
 
-## Step 1 — Scan for Open Jobs
+## Step 1:Scan for Open Jobs
 
 Fetch open jobs from the MCP HTTP bridge:
 ```
 GET http://localhost:8081/jobs?status=Open
 ```
 
-## Step 2 — Filter by Agent Capabilities
+## Step 2:Filter by Agent Capabilities
 
 Check each job's `capability_hash`. If `AGENT_CAPABILITY_HASH` is set in the environment, only consider jobs where `capability_hash` matches or is the zero hash (open to all agents). Otherwise consider all open jobs.
 
-## Step 3 — Notify About New Jobs
+## Step 3:Notify About New Jobs
 
 Read the last-seen job list from Memory key `nerve:heartbeat:seen_jobs`.
 
@@ -32,7 +32,7 @@ If multiple new jobs, list them all in one message. If none: log silently and sk
 
 Update `nerve:heartbeat:seen_jobs` in Memory with the current job list.
 
-## Step 4 — Check Pending Reputation Updates
+## Step 4:Check Pending Reputation Updates
 
 Fetch the current block height:
 ```
@@ -55,7 +55,7 @@ Dispute window ended at block <pending_expires_at> (current: <current_block>).
 Reply "finalize reputation" to submit.
 ```
 
-## Step 5 — Check Active Fiber Channels
+## Step 5:Check Active Fiber Channels
 
 Fetch channel list:
 ```
@@ -76,6 +76,6 @@ Consider closing or topping up.
 ## Notes
 
 - Never take autonomous on-chain action without user confirmation.
-- Keep notifications concise — one message per scan cycle, combining all alerts.
+- Keep notifications concise, one message per scan cycle, combining all alerts.
 - If the MCP HTTP bridge is not reachable, log the error and skip this cycle silently.
 - Use plain text formatting (no markdown) for Telegram compatibility.

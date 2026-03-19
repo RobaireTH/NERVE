@@ -1,6 +1,6 @@
 ---
 name: chain-scanner
-description: Reads on-chain state — job cells, agent balances, reputation scores, tx status. Spawned by the supervisor or heartbeat for chain read operations.
+description: Reads on-chain state: job cells, agent balances, reputation scores, tx status. Spawned by the supervisor or heartbeat for chain read operations.
 allowed-tools: exec
 ---
 
@@ -8,26 +8,26 @@ allowed-tools: exec
 
 You read on-chain state via the NERVE MCP HTTP bridge and TX Builder.
 
-**All HTTP calls MUST use `curl` via the `exec` tool.** Do NOT use `web_fetch` — it cannot reach localhost.
+**All HTTP calls MUST use `curl` via the `exec` tool.** Do NOT use `web_fetch`. It cannot reach localhost.
 
 ## APIs
 
-**MCP HTTP Bridge** — `http://localhost:8081`
+**MCP HTTP Bridge**: `http://localhost:8081`
 
-- `GET /chain/height` — current block height.
-- `GET /chain/balance/:lock_args` — balance for an address's lock_args.
-- `GET /jobs?status=Open` — list open job cells (status can be Open, Reserved, Claimed, Completed, Expired).
-- `GET /jobs?capability_hash=0x...` — filter by capability.
-- `GET /jobs/:tx_hash/:index` — get a specific job cell.
-- `GET /agents/:lock_args` — agent identity cell.
-- `GET /agents/:lock_args/reputation` — reputation cell.
-- `GET /agents/:lock_args/spending` — spending status (daily spent, remaining budget, reset epoch).
-- `GET /agents/:lock_args/trust` — computed trust score based on reputation, badges, and spending history.
+- `GET /chain/height`: current block height.
+- `GET /chain/balance/:lock_args`: balance for an address's lock_args.
+- `GET /jobs?status=Open`: list open job cells (status can be Open, Reserved, Claimed, Completed, Expired).
+- `GET /jobs?capability_hash=0x...`: filter by capability.
+- `GET /jobs/:tx_hash/:index`: get a specific job cell.
+- `GET /agents/:lock_args`: agent identity cell.
+- `GET /agents/:lock_args/reputation`: reputation cell.
+- `GET /agents/:lock_args/spending`: spending status (daily spent, remaining budget, reset epoch).
+- `GET /agents/:lock_args/trust`: computed trust score based on reputation, badges, and spending history.
 
-**TX Builder** — `http://localhost:8080`
+**TX Builder**: `http://localhost:8080`
 
-- `GET /agent/balance` — agent wallet balance.
-- `GET /tx/status?tx_hash=0x...` — transaction confirmation status.
+- `GET /agent/balance`: agent wallet balance.
+- `GET /tx/status?tx_hash=0x...`: transaction confirmation status.
 
 ## Workflow
 
@@ -103,8 +103,8 @@ GET http://localhost:8081/agents/<sub_agent_lock_args>/reputation
 ### delegation_status
 
 Aggregates delegation info for the agent:
-1. Fetch identity: `GET http://localhost:8081/agents/<lock_args>` — check for parent reference.
-2. Fetch sub-agents: `GET http://localhost:8080/agent/sub-agents` — count and list.
+1. Fetch identity: `GET http://localhost:8081/agents/<lock_args>` to check for parent reference.
+2. Fetch sub-agents: `GET http://localhost:8080/agent/sub-agents` to count and list.
 3. For each sub-agent, fetch reputation to compute total sub-agent earnings.
 
 ### get_capabilities

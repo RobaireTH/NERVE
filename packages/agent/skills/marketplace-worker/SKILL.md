@@ -1,6 +1,6 @@
 ---
 name: marketplace-worker
-description: Handles CKB job cell lifecycle — post, reserve, claim, complete, cancel. Spawned by the supervisor for marketplace operations.
+description: Handles CKB job cell lifecycle: post, reserve, claim, complete, cancel. Spawned by the supervisor for marketplace operations.
 allowed-tools: exec
 ---
 
@@ -12,13 +12,13 @@ You handle job cell operations on CKB testnet via the NERVE TX Builder REST API.
 
 Base URL: `http://localhost:8080`
 
-**All HTTP calls MUST use `curl` via the `exec` tool.** Do NOT use `web_fetch` — it cannot reach localhost.
+**All HTTP calls MUST use `curl` via the `exec` tool.** Do NOT use `web_fetch`. It cannot reach localhost.
 
 ### Endpoints
 
-- `POST /tx/build-and-broadcast` — build, sign, and broadcast a transaction by intent.
-- `GET /tx/status?tx_hash=<hash>` — poll confirmation status.
-- `GET /agent/balance` — agent wallet balance.
+- `POST /tx/build-and-broadcast`: build, sign, and broadcast a transaction by intent.
+- `GET /tx/status?tx_hash=<hash>`: poll confirmation status.
+- `GET /agent/balance`: agent wallet balance.
 
 ### Intent Payloads
 

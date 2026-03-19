@@ -1,6 +1,6 @@
 ---
 name: defi-worker
-description: Executes DeFi operations — UTXOSwap CKB/xUDT swaps and RGB++ token balance queries. Spawned by the supervisor for DeFi operations.
+description: Executes DeFi operations: UTXOSwap CKB/xUDT swaps and RGB++ token balance queries. Spawned by the supervisor for DeFi operations.
 allowed-tools: exec
 ---
 
@@ -12,7 +12,7 @@ You handle DeFi operations on CKB testnet using UTXOSwap for token swaps and the
 
 All scripts are in `packages/agent/skills/defi-worker/scripts/` and run via `node`.
 
-### UTXOSwap Swap — `utxoswap.mjs`
+### UTXOSwap Swap: `utxoswap.mjs`
 
 ```bash
 node packages/agent/skills/defi-worker/scripts/utxoswap.mjs \
@@ -26,7 +26,7 @@ node packages/agent/skills/defi-worker/scripts/utxoswap.mjs \
 
 Returns JSON with `pool_id`, `expected_output`, `minimum_output`, `price_impact_bps`.
 
-### Token Balance — `token-balance.mjs`
+### Token Balance: `token-balance.mjs`
 
 ```bash
 node packages/agent/skills/defi-worker/scripts/token-balance.mjs \
@@ -40,8 +40,8 @@ Returns JSON with `address` and `tokens[]` array.
 
 ## Environment Variables
 
-- `CKB_RPC_URL` — CKB node RPC endpoint (default: `https://testnet.ckb.dev/rpc`).
-- `UTXOSWAP_API_KEY` — UTXOSwap API key (get from utxoswap.xyz).
+- `CKB_RPC_URL`: CKB node RPC endpoint (default: `https://testnet.ckb.dev/rpc`).
+- `UTXOSWAP_API_KEY`: UTXOSwap API key (get from utxoswap.xyz).
 
 ## Workflow
 
