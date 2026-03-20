@@ -7,7 +7,7 @@ use secp256k1::{PublicKey, Secp256k1, SecretKey};
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
-use crate::{ckb_client::CkbClient, errors::TxBuildError};
+use crate::{ckb_client::CkbClient, errors::TxBuildError, signer::{LocalSigner, SuperiseSigner, Signer}};
 
 // Well-known secp256k1-blake2b lock script constants (code_hash is the same on mainnet and testnet).
 pub const SECP256K1_CODE_HASH: &str =
@@ -32,8 +32,8 @@ pub struct SubAgentInfo {
 #[derive(Clone)]
 pub struct AppState {
 	pub ckb: Arc<CkbClient>,
-	/// Raw private key bytes (kept in memory only, never logged or persisted).
-	pub private_key: Vec<u8>,
+	/// Signer backend (local key or SupeRISE wallet).
+	pub signer: Arc<dyn Signer>,
 	/// blake160(compressed_pubkey): the lock args for this agent's identity cell.
 	pub lock_args: String,
 	/// Maximum CKB that a single transaction may transfer, in shannons.
@@ -45,17 +45,11 @@ pub struct AppState {
 }
 
 impl AppState {
-	pub fn from_env() -> Result<Self, TxBuildError> {
+	pub async fn from_env() -> Result<Self, TxBuildError> {
 		let rpc_url = std::env::var("CKB_RPC_URL")
 			.unwrap_or_else(|_| "https://testnet.ckb.dev/rpc".into());
 		let indexer_url = std::env::var("CKB_INDEXER_URL")
 			.unwrap_or_else(|_| "https://testnet.ckb.dev/indexer".into());
-
-		let private_key_hex = std::env::var("AGENT_PRIVATE_KEY")
-			.map_err(|_| TxBuildError::Signing("AGENT_PRIVATE_KEY not set".into()))?;
-
-		let private_key = hex::decode(private_key_hex.trim_start_matches("0x"))
-			.map_err(|e| TxBuildError::Signing(format!("bad AGENT_PRIVATE_KEY hex: {e}")))?;
 
 		let spending_limit_shannons: u64 = std::env::var("PER_TX_LIMIT_CKB")
 			.ok()
@@ -63,7 +57,24 @@ impl AppState {
 			.map(ckb_to_shannons)
 			.unwrap_or(ckb_to_shannons(100.0)); // default: 100 CKB
 
-		let lock_args = derive_lock_args(&private_key)?;
+		let signer: Arc<dyn Signer> = match std::env::var("SIGNING_BACKEND").as_deref() {
+			Ok("superise") => {
+				let url = std::env::var("SUPERISE_URL")
+					.unwrap_or_else(|_| "http://127.0.0.1:18799/mcp".into());
+				Arc::new(SuperiseSigner::new(&url).await?)
+			}
+			_ => {
+				let private_key_hex = std::env::var("AGENT_PRIVATE_KEY")
+					.map_err(|_| TxBuildError::Signing("AGENT_PRIVATE_KEY not set".into()))?;
+
+				let private_key = hex::decode(private_key_hex.trim_start_matches("0x"))
+					.map_err(|e| TxBuildError::Signing(format!("bad AGENT_PRIVATE_KEY hex: {e}")))?;
+
+				Arc::new(LocalSigner::new(private_key)?)
+			}
+		};
+
+		let lock_args = signer.lock_args().to_string();
 
 		let sub_agent_store_path = std::env::var("SUB_AGENT_STORE_PATH")
 			.map(PathBuf::from)
@@ -75,7 +86,7 @@ impl AppState {
 
 		Ok(Self {
 			ckb: Arc::new(CkbClient::new(rpc_url, indexer_url)),
-			private_key,
+			signer,
 			lock_args,
 			spending_limit_shannons,
 			sub_agents: Arc::new(RwLock::new(sub_agents)),
@@ -83,11 +94,13 @@ impl AppState {
 		})
 	}
 
-	/// Checks the primary key first, then sub-agents.
+	/// Get the private key for a sub-agent. Returns an error for the primary agent (which uses the Signer trait).
 	#[allow(dead_code)]
 	pub async fn get_private_key_for(&self, lock_args: &str) -> Result<Vec<u8>, TxBuildError> {
 		if lock_args == self.lock_args {
-			return Ok(self.private_key.clone());
+			return Err(TxBuildError::KeyStoreError(
+				"primary agent private key not directly accessible; use signer trait instead".into(),
+			));
 		}
 
 		let agents = self.sub_agents.read().await;

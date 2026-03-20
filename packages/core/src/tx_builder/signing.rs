@@ -97,13 +97,13 @@ pub fn compute_signing_message(
 
 /// Additional witnesses beyond the first are assumed to be empty
 /// (as is standard for multi-input same-lock transactions).
-pub fn sign_tx(
+#[cfg(test)]
+fn sign_tx(
 	tx_hash_hex: &str,
 	private_key: &[u8],
 	witness_count: usize,
 ) -> Result<[u8; 65], TxBuildError> {
 	let placeholder = placeholder_witness();
-	// Additional witnesses are empty (0 bytes each) for same-lock-group inputs.
 	let additional: Vec<Vec<u8>> = (1..witness_count).map(|_| Vec::new()).collect();
 	let message_bytes = compute_signing_message(tx_hash_hex, &placeholder, &additional)?;
 
@@ -127,7 +127,8 @@ pub fn sign_tx(
 
 /// Like sign_tx but uses a pre-built first witness (e.g. one containing input_type data)
 /// instead of generating a fresh placeholder.
-pub fn sign_tx_with_witness(
+#[cfg(test)]
+fn sign_tx_with_witness(
 	tx_hash_hex: &str,
 	private_key: &[u8],
 	first_witness: &[u8],

@@ -10,6 +10,7 @@ use tower_http::trace::TraceLayer;
 mod api;
 mod ckb_client;
 mod errors;
+mod signer;
 mod state;
 mod tx_builder;
 
@@ -24,10 +25,13 @@ use state::AppState;
 async fn main() {
 	tracing_subscriber::fmt::init();
 
-	let app_state = AppState::from_env().unwrap_or_else(|e| {
-		eprintln!("fatal: {e}");
-		std::process::exit(1);
-	});
+	let app_state = match AppState::from_env().await {
+		Ok(state) => state,
+		Err(e) => {
+			eprintln!("fatal: {e}");
+			std::process::exit(1);
+		}
+	};
 
 	let app = Router::new()
 		.route("/health", get(health))

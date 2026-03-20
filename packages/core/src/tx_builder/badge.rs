@@ -9,7 +9,7 @@ use crate::{
 
 use super::identity::calculate_type_id;
 use super::molecule::compute_raw_tx_hash;
-use super::signing::{inject_witness, sign_tx};
+use super::signing::inject_witness;
 
 const ESTIMATED_FEE: u64 = 2_000_000;
 // Minimum capacity for a badge cell:
@@ -196,7 +196,7 @@ pub async fn build_mint_badge(
 	});
 
 	let tx_hash = compute_raw_tx_hash(&tx)?;
-	let signature = sign_tx(&tx_hash, &state.private_key, inputs.len())?;
+	let signature = state.signer.sign(&tx_hash, inputs.len()).await?;
 	let mut tx = tx;
 	inject_witness(&mut tx, &signature);
 

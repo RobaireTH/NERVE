@@ -11,7 +11,7 @@ use crate::{
 };
 
 use super::molecule::compute_raw_tx_hash;
-use super::signing::{inject_witness, placeholder_witness, sign_tx};
+use super::signing::{inject_witness, placeholder_witness};
 
 // Agent identity cell data layout (88 bytes):
 //   [0]      version = 0
@@ -270,7 +270,7 @@ pub async fn build_spawn_agent(
 
 	let tx_hash = compute_raw_tx_hash(&tx)?;
 
-	let signature = sign_tx(&tx_hash, &state.private_key, inputs.len())?;
+	let signature = state.signer.sign(&tx_hash, inputs.len()).await?;
 	inject_witness(&mut tx, &signature);
 
 	Ok((tx, tx_hash))
@@ -463,7 +463,7 @@ pub async fn build_spawn_sub_agent(
 
 	let tx_hash = compute_raw_tx_hash(&tx)?;
 
-	let signature = sign_tx(&tx_hash, &state.private_key, inputs.len())?;
+	let signature = state.signer.sign(&tx_hash, inputs.len()).await?;
 	inject_witness(&mut tx, &signature);
 
 	Ok((tx, tx_hash))
@@ -555,7 +555,7 @@ pub async fn build_deploy_binary(
 
 	let tx_hash = compute_raw_tx_hash(&tx)?;
 
-	let signature = sign_tx(&tx_hash, &state.private_key, inputs.len())?;
+	let signature = state.signer.sign(&tx_hash, inputs.len()).await?;
 	inject_witness(&mut tx, &signature);
 
 	Ok((tx, tx_hash, code_hash))

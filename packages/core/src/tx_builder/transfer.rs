@@ -7,7 +7,7 @@ use crate::{
 };
 
 use super::molecule::compute_raw_tx_hash;
-use super::signing::{inject_witness, placeholder_witness, sign_tx};
+use super::signing::{inject_witness, placeholder_witness};
 
 use super::MIN_CELL_CAPACITY;
 // Estimated fee for a simple 1-input, 2-output transfer (in shannons).
@@ -125,7 +125,7 @@ pub async fn build_transfer(
 
 	let tx_hash = compute_raw_tx_hash(&tx)?;
 
-	let signature = sign_tx(&tx_hash, &state.private_key, inputs.len())?;
+	let signature = state.signer.sign(&tx_hash, inputs.len()).await?;
 	inject_witness(&mut tx, &signature);
 
 	Ok((tx, tx_hash))

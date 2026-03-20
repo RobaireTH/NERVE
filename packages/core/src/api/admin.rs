@@ -179,7 +179,7 @@ pub async fn test_spending_cap(
 
 	let change_capacity = fee_capacity - overspend_amount - 2_000_000;
 
-	use crate::tx_builder::signing::{inject_witness, placeholder_witness, sign_tx};
+	use crate::tx_builder::signing::{inject_witness, placeholder_witness};
 	let ph = format!("0x{}", hex::encode(placeholder_witness()));
 	let witnesses: Vec<Value> = all_inputs
 		.iter()
@@ -240,7 +240,7 @@ pub async fn test_spending_cap(
 	// Sign the transaction.
 	let tx_hash = compute_raw_tx_hash(&tx)?;
 	let witness_count = tx["witnesses"].as_array().map(|a| a.len()).unwrap_or(1);
-	let signature = sign_tx(&tx_hash, &state.private_key, witness_count)?;
+	let signature = state.signer.sign(&tx_hash, witness_count).await?;
 	inject_witness(&mut tx, &signature);
 
 	// Submit to the node and expect rejection.

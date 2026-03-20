@@ -12,7 +12,7 @@ use crate::{
 
 use super::molecule::compute_raw_tx_hash;
 use super::signing::{
-	inject_witness, placeholder_witness, placeholder_witness_with_input_type, sign_tx_with_witness,
+	inject_witness, placeholder_witness, placeholder_witness_with_input_type,
 };
 use super::{gather_fee_inputs, our_lock, placeholder_witnesses};
 
@@ -155,7 +155,7 @@ async fn sign_and_finalize(
 		.map_err(|e| TxBuildError::Signing(format!("bad witness hex: {e}")))?;
 
 	let tx_hash = compute_raw_tx_hash(&tx)?;
-	let signature = sign_tx_with_witness(&tx_hash, &state.private_key, &first_witness, witness_count)?;
+	let signature = state.signer.sign_with_witness(&tx_hash, &first_witness, witness_count).await?;
 	inject_witness(&mut tx, &signature);
 	Ok((tx, tx_hash))
 }

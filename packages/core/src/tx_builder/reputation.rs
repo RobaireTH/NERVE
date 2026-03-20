@@ -9,7 +9,7 @@ use super::{
 	gather_fee_inputs, our_lock, placeholder_witnesses, MIN_CELL_CAPACITY,
 	identity::calculate_type_id,
 	molecule::compute_raw_tx_hash,
-	signing::{inject_witness, sign_tx},
+	signing::inject_witness,
 };
 
 const ESTIMATED_FEE: u64 = 2_000_000;
@@ -230,7 +230,7 @@ pub async fn build_create_reputation(
 	});
 
 	let tx_hash_str = compute_raw_tx_hash(&tx)?;
-	let signature = sign_tx(&tx_hash_str, &state.private_key, inputs.len())?;
+	let signature = state.signer.sign(&tx_hash_str, inputs.len()).await?;
 	let mut tx = tx;
 	inject_witness(&mut tx, &signature);
 
@@ -316,7 +316,7 @@ pub async fn build_propose_reputation(
 	});
 
 	let tx_hash_str = compute_raw_tx_hash(&tx)?;
-	let signature = sign_tx(&tx_hash_str, &state.private_key, all_inputs.len())?;
+	let signature = state.signer.sign(&tx_hash_str, all_inputs.len()).await?;
 	let mut tx = tx;
 	inject_witness(&mut tx, &signature);
 
@@ -388,7 +388,7 @@ pub async fn build_finalize_reputation(
 	});
 
 	let tx_hash_str = compute_raw_tx_hash(&tx)?;
-	let signature = sign_tx(&tx_hash_str, &state.private_key, all_inputs.len())?;
+	let signature = state.signer.sign(&tx_hash_str, all_inputs.len()).await?;
 	let mut tx = tx;
 	inject_witness(&mut tx, &signature);
 

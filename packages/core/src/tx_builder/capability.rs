@@ -7,7 +7,7 @@ use crate::{
 };
 
 use super::molecule::compute_raw_tx_hash;
-use super::signing::{inject_witness, sign_tx};
+use super::signing::inject_witness;
 
 const ESTIMATED_FEE: u64 = 2_000_000;
 // Minimum capacity for a capability NFT cell:
@@ -53,14 +53,12 @@ fn encode_capability_data(
 	data
 }
 
-/// sign(blake2b("ckb-default-hash", agent_lock_args || capability_hash)).
-fn create_attestation(
-	private_key: &[u8],
+/// Compute attestation message: blake2b("ckb-default-hash", agent_lock_args || capability_hash).
+fn compute_attestation_message(
 	agent_lock_args: &[u8; 20],
 	capability_hash: &[u8; 32],
-) -> Result<Vec<u8>, TxBuildError> {
+) -> [u8; 32] {
 	use blake2b_rs::Blake2bBuilder;
-	use secp256k1::{Message, Secp256k1, SecretKey};
 
 	let mut hasher = Blake2bBuilder::new(32)
 		.personal(b"ckb-default-hash")
@@ -69,22 +67,7 @@ fn create_attestation(
 	hasher.update(capability_hash);
 	let mut msg_bytes = [0u8; 32];
 	hasher.finalize(&mut msg_bytes);
-
-	let secp = Secp256k1::new();
-	let sk = SecretKey::from_slice(private_key)
-		.map_err(|e| TxBuildError::Signing(format!("invalid private key: {e}")))?;
-	let msg = Message::from_digest_slice(&msg_bytes)
-		.map_err(|e| TxBuildError::Signing(format!("bad message: {e}")))?;
-
-	let (recovery_id, sig_bytes) = secp
-		.sign_ecdsa_recoverable(&msg, &sk)
-		.serialize_compact();
-
-	let mut signature = vec![0u8; 65];
-	signature[..64].copy_from_slice(&sig_bytes);
-	signature[64] = recovery_id.to_i32() as u8;
-
-	Ok(signature)
+	msg_bytes
 }
 
 /// Layout (118 bytes, proof_type=1 reputation-chain-backed):
@@ -214,7 +197,7 @@ pub async fn build_mint_reputation_capability(
 	});
 
 	let tx_hash = compute_raw_tx_hash(&tx)?;
-	let signature = sign_tx(&tx_hash, &state.private_key, inputs.len())?;
+	let signature = state.signer.sign(&tx_hash, inputs.len()).await?;
 	let mut tx = tx;
 	inject_witness(&mut tx, &signature);
 
@@ -229,7 +212,8 @@ pub async fn build_mint_capability(
 
 	let agent_lock_args = super::job::parse_lock_args_20(&state.lock_args)?;
 
-	let proof_data = create_attestation(&state.private_key, &agent_lock_args, capability_hash)?;
+	let attestation_msg = compute_attestation_message(&agent_lock_args, capability_hash);
+	let proof_data = state.signer.attest(&attestation_msg).await?;
 	let nft_data = encode_capability_data(&agent_lock_args, capability_hash, &proof_data);
 
 	let occupied_bytes = 8 + 53 + 33 + nft_data.len() as u64;
@@ -287,7 +271,7 @@ pub async fn build_mint_capability(
 	});
 
 	let tx_hash = compute_raw_tx_hash(&tx)?;
-	let signature = sign_tx(&tx_hash, &state.private_key, inputs.len())?;
+	let signature = state.signer.sign(&tx_hash, inputs.len()).await?;
 	let mut tx = tx;
 	inject_witness(&mut tx, &signature);
 
