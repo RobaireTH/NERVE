@@ -1,5 +1,4 @@
 use blake2b_rs::Blake2bBuilder;
-use secp256k1::{Message, Secp256k1, SecretKey};
 use serde_json::Value;
 
 use crate::errors::TxBuildError;
@@ -179,6 +178,7 @@ pub fn inject_witness(tx: &mut Value, signature: &[u8; 65]) {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use secp256k1::{Message, Secp256k1, SecretKey};
 
 	#[test]
 	fn placeholder_witness_layout() {
