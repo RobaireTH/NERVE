@@ -77,6 +77,125 @@ Capability proofs currently use signed attestations verified via secp256k1 recov
 | `job_cell` | `contracts/src/bin/job_cell.rs` | Job marketplace cell. Enforces Open → Reserved → Claimed → Completed lifecycle with result-hash verification at settlement. |
 | `capability_nft` | `contracts/src/bin/capability_nft.rs` | Verifiable capability claims with signed attestation or reputation-chain-backed proofs. |
 
+## Current Capabilities & Limitations (v1)
+
+### What Works (✓ Fully Implemented)
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| Agent identity cells | ✓ | Soulbound, spending-capped, Type ID singleton |
+| Job posting & lifecycle | ✓ | Open → Reserved → Claimed → Completed FSM |
+| UTXO atomicity | ✓ | No double-claims via consensus-level UTXO model |
+| Reputation proof chains | ✓ | Blake2b-linked history, immutable records |
+| Capability NFTs | ✓ | Signed attestations, recoverable signatures |
+| Fiber payment channels | ✓ | Per-job micropayments (if Fiber node running) |
+| AI agent orchestration | ✓ | OpenClaw supervisor + worker skills |
+| Result verification (basic) | ✓ | Hash-based (blake2b), off-chain verification by poster |
+
+### Known Limitations (⚠️ v1, Planned for v2)
+
+| Limitation | Impact | Workaround | Target |
+|-----------|--------|-----------|--------|
+| No automated dispute mechanism | High-value jobs need manual arbitration | Small job sizes (5-20 CKB) keep risk low | v2 |
+| Result verification is off-chain | Poster must manually verify; no consensus check | Economic: bad workers get reputation damage | v2 |
+| No slashing conditions | Bad actors only lose future jobs, not staked funds | Works for small transactions; add bonds for v2 | v2 |
+| No ZK capability proofs | Attestations are signed, not zero-knowledge | Sufficient for v1; ZK required for privacy-critical work | v2 |
+| No appeal/escalation mechanism | Disputes are economic, not protocol-enforced | Works fine for small marketplace; v2 adds oracle | v2 |
+
+### Design Philosophy: v1 vs. v2
+
+**v1 (Current):** Optimized for **high-frequency, small-value transactions**
+- 5-20 CKB jobs (microtransactions)
+- Reputation system deters bad actors
+- Economic incentives prevent fraud
+- Consensus level protects against LLM hallucination
+- Suitable for autonomous agent swarms
+
+**v2 (Roadmap):** Add **arbitration for medium-to-high-value work**
+- Automated dispute resolution via oracle network
+- ZK proofs for trustless capability verification
+- Slashing conditions for reputation stakes
+- Multi-round arbitration with appeal
+- Suitable for complex, high-value contracts
+
+---
+
+## Signing Backends: Local vs. SupeRISE
+
+nerve-core supports two pluggable signing backends. Both modes produce identical on-chain transactions and lock_args; choose based on your security model.
+
+| Mode | Backend | Security | Setup | Best For |
+|------|---------|----------|-------|----------|
+| **local** | Built-in secp256k1 | Private key in `AGENT_PRIVATE_KEY` env var | Add to `.env`, restart | Development, single-machine agents |
+| **superise** | SupeRISE wallet service | AES-256-GCM encrypted key storage, isolated signing process | Separate SupeRISE container + env config | Production agents, hardware wallets, enterprise |
+
+### Mode 1: Local Signer (Default)
+
+Use your private key directly in nerve-core. Fastest to set up, suitable for testing and local development.
+
+```bash
+# .env
+SIGNING_BACKEND=local
+AGENT_PRIVATE_KEY=0x<your-32-byte-hex-key>
+
+# Start nerve-core with LocalSigner
+cargo run -p nerve-core --release
+```
+
+**Trade-offs:**
+- ✓ Zero external dependencies
+- ✓ Fastest signing (in-process)
+- ✗ Private key in environment variable (test/dev only)
+- ✗ No hardware wallet support
+
+### Mode 2: SupeRISE Wallet (Optional)
+
+Delegate signing to SupeRISE, a local wallet service that encrypts keys at rest and exposes signing via RPC. Private key never touches nerve-core.
+
+```bash
+# Terminal 1: Start SupeRISE (separate container/process)
+docker run -p 18799:18799 superise:latest
+# or: superise start (if installed locally)
+
+# Terminal 2: Configure nerve-core for SupeRISE
+# .env
+SIGNING_BACKEND=superise
+SUPERISE_URL=http://127.0.0.1:18799/mcp
+# NOTE: Do NOT set AGENT_PRIVATE_KEY in SupeRISE mode
+
+# Start nerve-core (private key stays in SupeRISE)
+cargo run -p nerve-core --release
+# Expected: "Initialized SupeRISE signer from http://127.0.0.1:18799/mcp"
+```
+
+**Trade-offs:**
+- ✓ Key encryption at rest (AES-256-GCM)
+- ✓ Private key isolated in separate process
+- ✓ Hardware wallet integration (via SupeRISE)
+- ✓ Multi-agent wallet management
+- ✗ Requires SupeRISE running separately
+- ✗ ~50ms RPC latency per signature
+
+**Verification:**
+
+Both modes produce identical lock_args and on-chain transactions. To verify:
+
+```bash
+# Mode 1: Check lock_args with local signer
+curl http://localhost:8080/lock-args
+# Output: {"lock_args": "0x<20-byte-hex>"}
+
+# Mode 2: Switch to SupeRISE, check lock_args match
+# (Same 20-byte value = correct configuration)
+```
+
+**Integration layers:**
+
+- `packages/core/src/signer.rs`: Trait abstraction (`Signer`, `LocalSigner`, `SuperiseSigner`)
+- `packages/core/src/state.rs`: Backend selection via `SIGNING_BACKEND` env var
+- `packages/core/src/tx_builder/*.rs`: All builders call `state.signer.sign()` (async)
+- `compute_signing_message()`: Shared function (both backends use same CKB sighash computation)
+
 ## Getting Started
 
 NERVE has two onboarding paths. Choose the one that fits your setup.
