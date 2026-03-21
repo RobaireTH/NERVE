@@ -41,7 +41,7 @@ CKB_RPC="${CKB_RPC_URL:-https://testnet.ckb.dev/rpc}"
 pass() { PASS=$((PASS + 1)); echo "   PASS: $*"; }
 fail() { FAIL=$((FAIL + 1)); echo "   FAIL: $*" >&2; }
 skip() { SKIP=$((SKIP + 1)); echo "   SKIP: $*"; }
-section() { echo; echo "═══ $* ═══"; }
+section() { echo; echo "--- $* ---"; }
 
 # Wait for a TX to be committed, then wait for its output cell to be indexed.
 wait_committed_and_indexed() {
@@ -82,8 +82,6 @@ wait_committed_and_indexed() {
 [[ -n "${DEMO_WORKER_KEY:-}" ]] || { echo "error: DEMO_WORKER_KEY not set" >&2; exit 1; }
 [[ -n "${JOB_CELL_TYPE_CODE_HASH:-}" ]] || { echo "error: JOB_CELL_TYPE_CODE_HASH not set" >&2; exit 1; }
 
-# Start instances
-
 echo "Starting poster nerve-core on :$POSTER_PORT"
 AGENT_PRIVATE_KEY="$DEMO_POSTER_KEY" CORE_PORT="$POSTER_PORT" \
 	cargo run -p nerve-core --quiet 2>/tmp/nerve-test-poster.log &
@@ -112,8 +110,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Health checks
-
 section "Health Checks"
 
 if curl -sf "$POSTER_URL/health" | grep -q '"status":"ok"'; then
@@ -127,8 +123,6 @@ if curl -sf "$WORKER_URL/health" | grep -q '"status":"ok"'; then
 else
 	fail "worker health endpoint"
 fi
-
-# Get worker lock_args
 
 WORKER_BALANCE=$(curl -sf "$WORKER_URL/agent/balance")
 WORKER_LOCK_ARGS=$(echo "$WORKER_BALANCE" | grep -o '"lock_args":"[^"]*"' | cut -d'"' -f4)
@@ -186,7 +180,6 @@ REWARD_CKB=62
 TTL_BLOCKS=200
 CAPABILITY="0x0000000000000000000000000000000000000000000000000000000000000000"
 
-# Step 1: Post job
 POST_RESP=$(curl -sf -X POST "$POSTER_URL/tx/build-and-broadcast" \
 	-H "Content-Type: application/json" \
 	-d "{\"intent\":\"post_job\",\"reward_ckb\":$REWARD_CKB,\"ttl_blocks\":$TTL_BLOCKS,\"capability_hash\":\"$CAPABILITY\"}") || true
@@ -199,7 +192,6 @@ else
 	fail "post_job returned: $POST_RESP"
 fi
 
-# Step 2: Reserve job (poster holds the cell lock, so poster reserves on behalf of worker)
 RESERVE_RESP=$(curl -sf -X POST "$POSTER_URL/tx/build-and-broadcast" \
 	-H "Content-Type: application/json" \
 	-d "{\"intent\":\"reserve_job\",\"job_tx_hash\":\"$JOB_TX_HASH\",\"job_index\":0,\"worker_lock_args\":\"$WORKER_LOCK_ARGS\"}") || true
@@ -212,7 +204,6 @@ else
 	fail "reserve_job returned: $RESERVE_RESP"
 fi
 
-# Step 3: Claim job (poster holds the cell lock)
 CLAIM_RESP=$(curl -sf -X POST "$POSTER_URL/tx/build-and-broadcast" \
 	-H "Content-Type: application/json" \
 	-d "{\"intent\":\"claim_job\",\"job_tx_hash\":\"$RESERVE_TX\",\"job_index\":0}") || true
@@ -225,7 +216,6 @@ else
 	fail "claim_job returned: $CLAIM_RESP"
 fi
 
-# Step 4: Complete job
 COMPLETE_RESP=$(curl -sf -X POST "$POSTER_URL/tx/build-and-broadcast" \
 	-H "Content-Type: application/json" \
 	-d "{\"intent\":\"complete_job\",\"job_tx_hash\":\"$CLAIM_TX\",\"job_index\":0,\"worker_lock_args\":\"$WORKER_LOCK_ARGS\"}") || true
@@ -238,18 +228,13 @@ else
 	fail "complete_job returned: $COMPLETE_RESP"
 fi
 
-# Verify worker received reward
 NEW_WORKER_BAL=$(curl -sf "$WORKER_URL/agent/balance" | grep -o '"balance_ckb":[0-9.]*' | cut -d: -f2)
 echo "  Worker balance after completion: $NEW_WORKER_BAL CKB"
 pass "flow 1 finished (worker balance: $WORKER_BAL → $NEW_WORKER_BAL)"
 
-# FLOW 2: DeFi Swap
-
 section "FLOW 2: DeFi (UTXOSwap)"
 
 skip "UTXOSwap DeFi tested via agent skills, not integration test"
-
-# FLOW 3: Capability NFT
 
 section "FLOW 3: Capability NFT"
 
@@ -270,12 +255,9 @@ else
 	skip "CAP_NFT_TYPE_CODE_HASH not set"
 fi
 
-# Reputation flow
-
 section "Reputation Lifecycle"
 
 if [[ -n "${REPUTATION_TYPE_CODE_HASH:-}" ]]; then
-	# Create reputation cell
 	CREATE_REP_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
 		-H "Content-Type: application/json" \
 		-d '{"intent":"create_reputation"}') || true
@@ -317,8 +299,6 @@ else
 	skip "REPUTATION_TYPE_CODE_HASH not set"
 fi
 
-# Badge mint
-
 section "Badge Mint"
 
 if [[ -n "${DOB_BADGE_CODE_HASH:-}" && -n "${COMPLETE_TX:-}" ]]; then
@@ -335,8 +315,6 @@ if [[ -n "${DOB_BADGE_CODE_HASH:-}" && -n "${COMPLETE_TX:-}" ]]; then
 else
 	skip "DOB_BADGE_CODE_HASH not set or no completed job"
 fi
-
-# Sub-agent
 
 section "Sub-Agent Delegation"
 

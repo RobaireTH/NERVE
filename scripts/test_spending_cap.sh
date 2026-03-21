@@ -20,14 +20,14 @@ CORE_URL="${CORE_URL:-http://localhost:8080}"
 
 CKB_RPC="${CKB_RPC_URL:-https://testnet.ckb.dev/rpc}"
 
-step()    { echo; echo "── $* ──"; }
-ok()      { echo "   ✓ $*"; }
-fail()    { echo "   ✗ $*" >&2; exit 1; }
+step()    { echo; echo "--- $* ---"; }
+ok()      { echo "   OK  $*"; }
+fail()    { echo "   FAIL $*" >&2; exit 1; }
 
 # Wait for a TX to be committed, then wait for its output cell to be indexed.
 wait_committed_and_indexed() {
 	local tx_hash="$1" out_index="${2:-0x0}" label="${3:-cell}"
-	echo "   … Waiting for $label tx to be committed..."
+	echo "   .. Waiting for $label tx to be committed..."
 	for i in $(seq 1 30); do
 		local status
 		status=$(curl -sf -X POST "$CKB_RPC" \
@@ -38,11 +38,11 @@ wait_committed_and_indexed() {
 			ok "$label tx committed (poll $i)"
 			break
 		fi
-		echo "   … poll $i: $status, waiting 6s..."
+		echo "   .. poll $i: $status, waiting 6s..."
 		sleep 6
 		[[ "$i" == "30" ]] && fail "$label tx not committed after 30 polls"
 	done
-	echo "   … Waiting for indexer to pick up $label cell..."
+	echo "   .. Waiting for indexer to pick up $label cell..."
 	for i in $(seq 1 20); do
 		local cell_status
 		cell_status=$(curl -sf -X POST "$CKB_RPC" \
@@ -53,13 +53,11 @@ wait_committed_and_indexed() {
 			ok "$label cell indexed (poll $i)"
 			return 0
 		fi
-		echo "   … indexer poll $i: $cell_status, waiting 3s..."
+		echo "   .. indexer poll $i: $cell_status, waiting 3s..."
 		sleep 3
 	done
 	fail "$label cell not indexed after 60s"
 }
-
-# Pre-flight
 
 step "Pre-flight checks"
 curl -sf "$CORE_URL/health" | grep -q '"status":"ok"' || fail "nerve-core not running"
@@ -71,8 +69,6 @@ ok "Agent identity type script configured"
 BALANCE=$(curl -sf "$CORE_URL/agent/balance")
 BAL_CKB=$(echo "$BALANCE" | grep -o '"balance_ckb":[0-9.]*' | cut -d: -f2)
 echo "   Balance: $BAL_CKB CKB"
-
-# Step 1: Spawn agent identity with 5 CKB per-tx limit
 
 step "1. Spawning agent identity (spending_limit=5 CKB, daily_limit=50 CKB)"
 SPAWN_RESP=$(curl -sf -X POST "$CORE_URL/tx/build-and-broadcast" \
@@ -88,11 +84,8 @@ echo "   Explorer: https://testnet.explorer.nervos.org/transaction/$SPAWN_TX"
 
 wait_committed_and_indexed "$SPAWN_TX" "0x0" "identity"
 
-# Step 2: Attempt 10 CKB transfer (should fail)
-
 step "2. Attempting 10 CKB transfer (should FAIL; exceeds 5 CKB limit)"
 
-# Get a dummy lock_args to transfer to (just use a zero-padded one for testing).
 TARGET_LOCK_ARGS="0x0000000000000000000000000000000000000001"
 
 TRANSFER_RESP=$(curl -sf -X POST "$CORE_URL/tx/build-and-broadcast" \
@@ -103,12 +96,10 @@ if echo "$TRANSFER_RESP" | grep -qi "spending_limit\|limit\|exceeded\|rejected\|
 	ok "Transfer correctly rejected: spending limit enforced"
 	echo "   Response: $TRANSFER_RESP"
 else
-	echo "   ⚠ Transfer may have succeeded unexpectedly: $TRANSFER_RESP"
+	echo "   WARN Transfer may have succeeded unexpectedly: $TRANSFER_RESP"
 	echo "   Note: if the identity cell is not included as a cell_dep/input in the tx,"
 	echo "   the type script won't run. This test validates the error path."
 fi
-
-# Step 3: Attempt 3 CKB transfer (should succeed)
 
 step "3. Attempting 3 CKB transfer (should SUCCEED; within 5 CKB limit)"
 SMALL_RESP=$(curl -sf -X POST "$CORE_URL/tx/build-and-broadcast" \
@@ -124,12 +115,10 @@ else
 	echo "   Note: transfer may fail for other reasons (e.g., insufficient balance)."
 fi
 
-# Summary
-
 echo
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "---------------------------------------------------"
 echo "Spending Cap Test Complete"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "---------------------------------------------------"
 echo "  Identity cell: $SPAWN_TX:0"
 echo "  Per-tx limit:  5 CKB"
 echo "  10 CKB test:   should have been rejected"
@@ -139,4 +128,4 @@ echo "  The spending cap is enforced by the agent_identity type script."
 echo "  When the identity cell is consumed as input in a transaction,"
 echo "  the type script checks that total outgoing capacity to"
 echo "  non-agent addresses does not exceed the spending limit."
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "---------------------------------------------------"

@@ -249,22 +249,41 @@ capsule build --release
 cargo build -p nerve-core
 ```
 
-#### 4. Deploy or join
+#### 3b. Use pre-deployed contracts (recommended for testing)
 
-**Fresh deploy** - deploy your own contracts to testnet:
+The NERVE marketplace is already deployed on CKB testnet. Use these contract hashes instead of deploying your own:
+
+```bash
+# Use the shared testnet deployment
+cat > .env.deployed << 'EOF'
+# Deployed: 2026-03-21 on CKB testnet
+AGENT_IDENTITY_TYPE_CODE_HASH=0x1c4cefc3da72962f78fa92474e32f0f9fe824b6f924c80388a205f423b6d21d7
+AGENT_IDENTITY_DEP_TX_HASH=0x006dc868946f6780d49a330deb183dfea604516ec44c3a503622cd3e6cdc6753
+JOB_CELL_TYPE_CODE_HASH=0xd9f734cf2dd945f0b284d90c2353acd1c9cf2a55cf0ca9adcb2f21c21e2b5a9d
+JOB_CELL_DEP_TX_HASH=0xcda0b62aeda07593355cd2fc27d00725f0d054fe646996582bf724e9de5c6fa6
+CAP_NFT_TYPE_CODE_HASH=0x9ead48f5b264ca7c9e94e6b6df125a53ee4f45ff9ea1914fb420cdfa97912955
+CAP_NFT_DEP_TX_HASH=0x908ea05bc49a7e760a2051200514e391aa992532651f5409ddd3246fecb59f75
+REPUTATION_TYPE_CODE_HASH=0xd163f7ff955d014eec67c6bc715988e7cb6cf4744dfcc805d43b5f46f1fdf2ed
+REPUTATION_DEP_TX_HASH=0x8cabf44a54c070837aa1e4bd16870b339b5093a88462c225221f10f58b714a40
+DOB_BADGE_CODE_HASH=0xb36ed7616c4c87c0779a6c1238e78a84ea68a2638173f25ed140650e0454fbb9
+DOB_BADGE_DEP_TX_HASH=0x9ae36ae06c449d704bc20af5c455c32a220f73249b5b95a15e8a1e352848fda9
+EOF
+
+source .env.deployed
+```
+
+Now you can skip the deployment step below and go straight to **Step 5: Start services**.
+
+#### 4. Deploy your own (if you want to experiment)
+
+Or deploy fresh contracts to testnet (requires funded wallet)
+
+If you want to deploy your own contracts instead:
 
 ```bash
 ./scripts/deploy_contracts.sh all
 source .env.deployed
 ```
-
-**Join an existing marketplace** - reuse shared contracts:
-
-```bash
-nerve join --bridge http://<host>:8081
-```
-
-This fetches the shared contract code hashes, writes `.env.deployed`, and (if nerve-core is running) spawns your identity and reputation cells automatically.
 
 #### 5. Start services
 
