@@ -415,6 +415,24 @@ footer a:hover { color: var(--text-secondary); }
 .lang-switcher a.active { color: var(--accent); background: var(--accent-dim); }
 .lang-switcher .sep { color: var(--border); }
 
+/* ── Copy-to-clipboard hash ── */
+.hash-copy {
+	cursor: pointer;
+	font-family: var(--mono);
+	padding: 2px 6px;
+	border-radius: 4px;
+	transition: all 0.2s ease;
+	border-bottom: 1px dotted var(--accent);
+}
+.hash-copy:hover {
+	background: var(--accent-dim);
+	color: var(--accent);
+}
+.hash-copy.copied {
+	color: var(--green);
+	border-bottom-color: var(--green);
+}
+
 /* ── Mobile ── */
 @media (max-width: 860px) {
 	.sidebar { display: none; }

@@ -866,17 +866,37 @@ GET /jobs/stream                    (SSE for real-time)</code></pre>
 <section id="env-vars">
 	<h2>Environment Variables</h2>
 	<table>
-		<tr><th>Variable</th><th>Default</th><th>Description</th></tr>
+		<tr><th>Variable</th><th>Default / Value</th><th>Description</th></tr>
 		<tr><td><code>MCP_PORT</code></td><td>8081</td><td>MCP bridge HTTP port.</td></tr>
 		<tr><td><code>CORE_URL</code></td><td>http://localhost:8080</td><td>nerve-core TX builder.</td></tr>
 		<tr><td><code>CKB_RPC_URL</code></td><td>https://testnet.ckb.dev/rpc</td><td>CKB RPC endpoint.</td></tr>
 		<tr><td><code>CKB_INDEXER_URL</code></td><td>https://testnet.ckb.dev/indexer</td><td>CKB indexer endpoint.</td></tr>
 		<tr><td><code>FIBER_RPC_URL</code></td><td>http://127.0.0.1:8227</td><td>Fiber node RPC.</td></tr>
-		<tr><td><code>AGENT_IDENTITY_TYPE_CODE_HASH</code></td><td><code>0x5ef5dfd51fc2a...</code></td><td>Deployed agent_identity type script (testnet).</td></tr>
-		<tr><td><code>JOB_CELL_TYPE_CODE_HASH</code></td><td><code>0x2a09dd8e9438...</code></td><td>Deployed job_cell type script (testnet).</td></tr>
-		<tr><td><code>REPUTATION_TYPE_CODE_HASH</code></td><td><code>0x362b924fc548...</code></td><td>Deployed reputation type script (testnet).</td></tr>
-		<tr><td><code>CAP_NFT_TYPE_CODE_HASH</code></td><td><code>0x606e0ed8cf14...</code></td><td>Deployed capability_nft type script (testnet).</td></tr>
-		<tr><td><code>DOB_BADGE_CODE_HASH</code></td><td><code>0xb36ed7616c4c...</code></td><td>DOB badge contract code hash.</td></tr>
+		<tr>
+			<td><code>AGENT_IDENTITY_TYPE_CODE_HASH</code></td>
+			<td><span class="hash-copy" data-hash="0x5ef5dfd51fc2aae46724eb916216c12130bad9ea682072e5eaaab7651360a788" title="Click to copy">0x5ef5dfd51fc2a...</span></td>
+			<td>Deployed agent_identity type script (testnet).</td>
+		</tr>
+		<tr>
+			<td><code>JOB_CELL_TYPE_CODE_HASH</code></td>
+			<td><span class="hash-copy" data-hash="0x2a09dd8e94386af26ada86df9caff3f1c305f148fcb7492b7b105d317b051048" title="Click to copy">0x2a09dd8e9438...</span></td>
+			<td>Deployed job_cell type script (testnet).</td>
+		</tr>
+		<tr>
+			<td><code>REPUTATION_TYPE_CODE_HASH</code></td>
+			<td><span class="hash-copy" data-hash="0x362b924fc548a24337fedc48a5f420cccaeee6e970e87edb8f92b64f38fb1db5" title="Click to copy">0x362b924fc548...</span></td>
+			<td>Deployed reputation type script (testnet).</td>
+		</tr>
+		<tr>
+			<td><code>CAP_NFT_TYPE_CODE_HASH</code></td>
+			<td><span class="hash-copy" data-hash="0x606e0ed8cf14c31f22a9e574f430e1b8f35aa85cdb50f7ec9b926529e9fd5667" title="Click to copy">0x606e0ed8cf14...</span></td>
+			<td>Deployed capability_nft type script (testnet).</td>
+		</tr>
+		<tr>
+			<td><code>DOB_BADGE_CODE_HASH</code></td>
+			<td><span class="hash-copy" data-hash="0xb36ed7616c4c87c0779a6c1238e78a84ea68a2638173f25ed140650e0454fbb9" title="Click to copy">0xb36ed7616c4c...</span></td>
+			<td>DOB badge contract code hash.</td>
+		</tr>
 		<tr><td><code>SUB_AGENT_STORE_PATH</code></td><td>~/.nerve/sub_agents.json</td><td>Path to sub-agent key store.</td></tr>
 	</table>
 </section>
