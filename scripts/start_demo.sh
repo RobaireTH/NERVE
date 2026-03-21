@@ -2,7 +2,7 @@
 # start_demo.sh: Run the NERVE two-process marketplace demo.
 #
 # Starts two nerve-core instances (poster + worker) with separate keys
-# and runs the full job lifecycle: post → reserve → claim → complete.
+# and runs the full job lifecycle: post -> reserve -> claim -> complete.
 #
 # Prerequisites:
 #   - Contracts deployed: source .env.deployed
@@ -38,7 +38,6 @@ MCP_URL="${MCP_URL:-http://localhost:8081}"
 REWARD_CKB="${DEMO_REWARD_CKB:-62}"
 TTL_BLOCKS="${DEMO_TTL_BLOCKS:-200}"
 
-# Validation
 
 [[ -n "${DEMO_POSTER_KEY:-}" ]] || { echo "error: DEMO_POSTER_KEY is not set" >&2; exit 1; }
 [[ -n "${DEMO_WORKER_KEY:-}" ]] || { echo "error: DEMO_WORKER_KEY is not set" >&2; exit 1; }
@@ -46,13 +45,11 @@ TTL_BLOCKS="${DEMO_TTL_BLOCKS:-200}"
 
 CKB_RPC="${CKB_RPC_URL:-https://testnet.ckb.dev/rpc}"
 
-step()    { echo; echo "── $* ──"; }
-ok()      { echo "   ✓ $*"; }
-pending() { echo "   … $*"; }
-fail()    { echo "   ✗ $*" >&2; exit 1; }
+step()    { echo; echo "--- $* ---"; }
+ok()      { echo "   OK  $*"; }
+pending() { echo "   .. $*"; }
+fail()    { echo "   FAIL $*" >&2; exit 1; }
 
-# Wait for a TX to be committed, then wait for its output cell to be indexed.
-# Usage: wait_committed_and_indexed <tx_hash> <output_index> <label>
 wait_committed_and_indexed() {
 	local tx_hash="$1" out_index="${2:-0x0}" label="${3:-cell}"
 
@@ -67,7 +64,7 @@ wait_committed_and_indexed() {
 			ok "$label tx committed (poll $i)"
 			break
 		fi
-		echo "   … poll $i: $status, waiting 6s..."
+		echo "   .. poll $i: $status, waiting 6s..."
 		sleep 6
 		if [[ "$i" == "30" ]]; then
 			fail "$label tx not committed after 30 polls"
@@ -85,15 +82,13 @@ wait_committed_and_indexed() {
 			ok "$label cell indexed (poll $i)"
 			return 0
 		fi
-		echo "   … indexer poll $i: $cell_status, waiting 3s..."
+		echo "   .. indexer poll $i: $cell_status, waiting 3s..."
 		sleep 3
 	done
 	fail "$label cell not indexed after 60s"
 }
 
-# Start poster nerve-core
 
-# Clean mode: stop any running instances
 
 if [[ "$CLEAN_MODE" == "--clean" ]]; then
 	step "Clean mode: stopping running nerve-core instances"
@@ -102,7 +97,6 @@ if [[ "$CLEAN_MODE" == "--clean" ]]; then
 	ok "Previous instances stopped"
 fi
 
-# Start poster nerve-core
 
 pkill -f "nerve-core" 2>/dev/null || true
 sleep 1
@@ -117,7 +111,6 @@ sleep 3
 curl -sf "$POSTER_URL/health" | grep -q '"status":"ok"' || fail "poster nerve-core not healthy"
 ok "Poster nerve-core running"
 
-# Start worker nerve-core
 
 step "Starting worker nerve-core on :$WORKER_PORT"
 AGENT_PRIVATE_KEY="$DEMO_WORKER_KEY" CORE_PORT="$WORKER_PORT" \
@@ -134,7 +127,6 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Fetch worker lock_args
 
 step "Fetching worker lock_args"
 WORKER_BALANCE=$(curl -sf "$WORKER_URL/agent/balance")
@@ -142,7 +134,6 @@ WORKER_LOCK_ARGS=$(echo "$WORKER_BALANCE" | grep -o '"lock_args":"[^"]*"' | cut 
 [[ -n "$WORKER_LOCK_ARGS" ]] || fail "could not read worker lock_args"
 ok "Worker lock_args: $WORKER_LOCK_ARGS"
 
-# Pre-flight balance check
 
 step "Checking balances"
 POSTER_BAL=$(curl -sf "$POSTER_URL/agent/balance" | grep -o '"balance_ckb":[0-9.]*' | cut -d: -f2)
@@ -153,7 +144,6 @@ echo "   Worker: $WORKER_BAL CKB"
 NEEDED=$(echo "$REWARD_CKB + 185 + 2" | bc)
 echo "   Need (poster): ~$NEEDED CKB for job cell (184 overhead + $REWARD_CKB reward + fee)"
 
-# Flow 1: Post Job
 
 step "1. Poster: posting job ($REWARD_CKB CKB reward, TTL $TTL_BLOCKS blocks)"
 CAPABILITY="0x0000000000000000000000000000000000000000000000000000000000000000"
@@ -167,7 +157,6 @@ echo "   Explorer: https://testnet.explorer.nervos.org/transaction/$JOB_TX_HASH"
 
 wait_committed_and_indexed "$JOB_TX_HASH" "0x0" "job"
 
-# Flow 2: Reserve
 
 step "2. Worker: reserving job $JOB_TX_HASH:0"
 RESERVE_RESP=$(curl -sf -X POST "$POSTER_URL/tx/build-and-broadcast" \
@@ -198,7 +187,6 @@ fi
 
 wait_committed_and_indexed "$CLAIM_TX" "0x0" "claim"
 
-# Flow 4: Complete
 
 step "4. Poster: completing job $CLAIM_TX:0 (routes $REWARD_CKB CKB to worker)"
 COMPLETE_RESP=$(curl -sf -X POST "$POSTER_URL/tx/build-and-broadcast" \
@@ -211,20 +199,17 @@ echo "   Explorer: https://testnet.explorer.nervos.org/transaction/$COMPLETE_TX"
 
 ok "Flow 1 complete: Agent Marketplace"
 
-# Flow 2: DeFi (UTXOSwap)
 
 echo
-echo "── FLOW 2: DeFi (UTXOSwap) ──"
+echo "--- FLOW 2: DeFi (UTXOSwap) ---"
 echo "   DeFi swaps use UTXOSwap via the defi-worker agent skill."
 echo "   Run: node packages/agent/skills/defi-worker/scripts/utxoswap.mjs --help"
 
-# Flow 3: Capability Proof
 
 CAP_TX=""
 if [[ -n "${CAP_NFT_TYPE_CODE_HASH:-}" ]]; then
 	step "FLOW 3: Capability Proof"
 	pending "Worker: minting capability NFT (text_summarize)"
-	# Use a fixed demo hash for the text_summarize capability.
 	DEMO_CAP_HASH="0x0000000000000000000000000000000000000000000000000000000000000001"
 	CAP_RESP=$(curl -sf -X POST "$WORKER_URL/tx/build-and-broadcast" \
 		-H "Content-Type: application/json" \
@@ -240,17 +225,15 @@ if [[ -n "${CAP_NFT_TYPE_CODE_HASH:-}" ]]; then
 	ok "Flow 3 complete: Capability Proof"
 else
 	echo
-	echo "── FLOW 3: Capability Proof (skipped) ──"
+	echo "--- FLOW 3: Capability Proof (skipped) ---"
 	echo "   Deploy capability_nft contract to enable."
 fi
 
-# Full-mode flows (4-7)
 
 REP_TX="" BADGE_TX="" FIBER_TX="" DISCOVERY_OK=""
 
 if [[ "$FULL_MODE" == "--full" ]]; then
 
-	# Flow 4: Reputation
 
 	REP_CREATE_TX=""
 	if [[ -n "${REPUTATION_TYPE_CODE_HASH:-}" ]]; then
@@ -293,11 +276,10 @@ if [[ "$FULL_MODE" == "--full" ]]; then
 		ok "Flow 4 complete: Reputation"
 	else
 		echo
-		echo "── FLOW 4: Reputation (skipped) ──"
+		echo "--- FLOW 4: Reputation (skipped) ---"
 		echo "   Deploy reputation contract to enable."
 	fi
 
-	# Flow 5: Badge Minting
 
 	if [[ -n "${DOB_BADGE_CODE_HASH:-}" && -n "$COMPLETE_TX" ]]; then
 		step "FLOW 5: Badge Minting"
@@ -314,11 +296,10 @@ if [[ "$FULL_MODE" == "--full" ]]; then
 		ok "Flow 5 complete: Badge Minting"
 	else
 		echo
-		echo "── FLOW 5: Badge Minting (skipped) ──"
+		echo "--- FLOW 5: Badge Minting (skipped) ---"
 		echo "   Set DOB_BADGE_CODE_HASH to enable."
 	fi
 
-	# Flow 6: Fiber Payment
 
 	FIBER_RPC="${FIBER_RPC_URL:-http://127.0.0.1:8227}"
 	if curl -sf --max-time 3 -X POST "$FIBER_RPC" \
@@ -339,11 +320,10 @@ if [[ "$FULL_MODE" == "--full" ]]; then
 		ok "Flow 6 complete: Fiber Payment"
 	else
 		echo
-		echo "── FLOW 6: Fiber Payment (skipped) ──"
+		echo "--- FLOW 6: Fiber Payment (skipped) ---"
 		echo "   Fiber node not available."
 	fi
 
-	# Flow 7: Agent Discovery
 
 	step "FLOW 7: Agent Discovery"
 	pending "Calling /discover/workers"
@@ -368,12 +348,11 @@ if [[ "$FULL_MODE" == "--full" ]]; then
 
 fi
 
-# Summary
 
 echo
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "---------------------------------------------------"
 echo "NERVE Demo: All Flows Complete"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "---------------------------------------------------"
 echo
 echo "  FLOW 1: Agent Marketplace"
 echo "    post:     $JOB_TX_HASH"
@@ -426,4 +405,4 @@ if [[ "$FULL_MODE" == "--full" ]]; then
 fi
 echo
 echo "  Explorer: https://testnet.explorer.nervos.org/aggron"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "---------------------------------------------------"
