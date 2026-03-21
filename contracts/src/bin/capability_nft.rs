@@ -29,6 +29,7 @@
 use ckb_std::{
 	ckb_constants::Source,
 	default_alloc,
+	dummy_atomic,
 	entry,
 	error::SysError,
 	high_level::{load_cell_data, load_cell_type_hash},

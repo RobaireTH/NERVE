@@ -35,6 +35,7 @@ use ckb_hash::blake2b_256;
 use ckb_std::{
 	ckb_constants::Source,
 	default_alloc,
+	dummy_atomic,
 	entry,
 	error::SysError,
 	high_level::{load_cell_data, load_input_since},

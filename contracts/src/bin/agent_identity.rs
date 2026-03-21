@@ -49,6 +49,7 @@ use ckb_std::{
 	ckb_constants::Source,
 	ckb_types::prelude::Entity,
 	default_alloc,
+	dummy_atomic,
 	entry,
 	error::SysError,
 	high_level::{
