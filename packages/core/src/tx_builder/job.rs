@@ -167,6 +167,13 @@ pub async fn build_post_job(
 	capability_hash: [u8; 32],
 	description: Option<String>,
 ) -> Result<(Value, String), TxBuildError> {
+	if reward_shannons < MIN_PAYMENT_CELL {
+		return Err(TxBuildError::InsufficientCapacity {
+			need: MIN_PAYMENT_CELL,
+			have: reward_shannons,
+		});
+	}
+
 	let (type_code_hash, dep_tx_hash) = job_type_env()?;
 
 	let tip = state.ckb.get_tip_block_number().await?;
