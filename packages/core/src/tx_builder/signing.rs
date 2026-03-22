@@ -3,8 +3,6 @@ use serde_json::Value;
 
 use crate::errors::TxBuildError;
 
-/// Builds the 85-byte molecule-encoded WitnessArgs with a 65-byte zero placeholder.
-/// Layout: [total_size: u32LE][offset_lock: u32LE][offset_input_type: u32LE][offset_output_type: u32LE][lock_len: u32LE][65 zero bytes]
 pub fn placeholder_witness() -> Vec<u8> {
 	// WitnessArgs molecule Table with lock=Some([0u8;65]), input_type=None, output_type=None.
 	let total: u32 = 85;
@@ -23,8 +21,6 @@ pub fn placeholder_witness() -> Vec<u8> {
 	w
 }
 
-/// Builds a molecule-encoded WitnessArgs with lock=Some([0u8;65]) and input_type=Some(input_type).
-/// Layout: header(16) + lock(4+65) + input_type(4+N) = 89 + N bytes total.
 pub fn placeholder_witness_with_input_type(input_type: &[u8]) -> Vec<u8> {
 	let total: u32 = 89 + input_type.len() as u32;
 	let offset_lock: u32 = 16;
@@ -45,7 +41,6 @@ pub fn placeholder_witness_with_input_type(input_type: &[u8]) -> Vec<u8> {
 	w
 }
 
-/// Builds a signed WitnessArgs by writing the 65-byte signature into the lock field.
 pub fn signed_witness(signature: &[u8; 65]) -> Vec<u8> {
 	let mut w = placeholder_witness();
 	// Signature starts at byte 20 (4 total + 12 offsets + 4 lock_len).
@@ -53,11 +48,6 @@ pub fn signed_witness(signature: &[u8; 65]) -> Vec<u8> {
 	w
 }
 
-/// Computes the CKB signing message for sighash_all:
-///   blake2b(tx_hash || len(witness_0) || witness_0 || len(witness_1) || witness_1 || ...).
-///
-/// The `additional_witnesses` parameter contains any remaining witnesses in the lock group
-/// (typically empty "0x" witnesses for additional inputs sharing the same lock script).
 pub fn compute_signing_message(
 	tx_hash_hex: &str,
 	witness_placeholder: &[u8],
@@ -77,12 +67,10 @@ pub fn compute_signing_message(
 
 	hasher.update(&tx_hash);
 
-	// Hash the first witness (placeholder with lock field zeroed).
 	let witness_len = witness_placeholder.len() as u64;
 	hasher.update(&witness_len.to_le_bytes());
 	hasher.update(witness_placeholder);
 
-	// Hash each additional witness in the lock group.
 	for witness in additional_witnesses {
 		let len = witness.len() as u64;
 		hasher.update(&len.to_le_bytes());
@@ -94,8 +82,6 @@ pub fn compute_signing_message(
 	Ok(result)
 }
 
-/// Additional witnesses beyond the first are assumed to be empty
-/// (as is standard for multi-input same-lock transactions).
 #[cfg(test)]
 fn sign_tx(
 	tx_hash_hex: &str,
@@ -124,8 +110,6 @@ fn sign_tx(
 	Ok(signature)
 }
 
-/// Like sign_tx but uses a pre-built first witness (e.g. one containing input_type data)
-/// instead of generating a fresh placeholder.
 #[cfg(test)]
 fn sign_tx_with_witness(
 	tx_hash_hex: &str,
@@ -154,9 +138,6 @@ fn sign_tx_with_witness(
 	Ok(signature)
 }
 
-/// Injects a signed witness into a transaction JSON object (mutates witnesses[0]).
-/// Reads the existing witness bytes to preserve any input_type data, then writes
-/// the 65-byte signature at offset [20..85].
 pub fn inject_witness(tx: &mut Value, signature: &[u8; 65]) {
 	if let Some(witnesses) = tx["witnesses"].as_array_mut() {
 		if witnesses.is_empty() {

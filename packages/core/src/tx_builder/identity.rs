@@ -13,23 +13,8 @@ use crate::{
 use super::molecule::compute_raw_tx_hash;
 use super::signing::{inject_witness, placeholder_witness};
 
-// Agent identity cell data layout (88 bytes):
-//   [0]      version = 0
-//   [1..34]  compressed secp256k1 pubkey (33 bytes)
-//   [34..42] spending_limit_per_tx as u64 LE
-//   [42..50] daily_limit as u64 LE
-//   [50..70] parent_lock_args (20 bytes, all zeros = root agent)
-//   [70..72] revenue_share_bps (u16 LE, basis points: 1000 = 10%)
-//   [72..80] daily_spent as u64 LE (accumulated spending in current day window)
-//   [80..88] last_reset_epoch as u64 LE (epoch number when accumulator last reset)
 const IDENTITY_DATA_SIZE: usize = 88;
-
-// Minimum capacity shannons for an identity cell:
-//   capacity(8) + lock(53) + type_script(33 + 32 args) + data(50) = 176 bytes
-// Add buffer to round up to 232 CKB for safety.
 const IDENTITY_CELL_CAPACITY: u64 = 232 * 100_000_000;
-
-// Estimated fee for the spawn transaction (shannons).
 const ESTIMATED_FEE: u64 = 1_000_000;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -108,7 +93,6 @@ pub fn blake2b_256(data: &[u8]) -> [u8; 32] {
 	out
 }
 
-/// type_id = blake2b(since(8) || prev_tx_hash(32) || prev_index(4) || output_index(8))
 pub fn calculate_type_id(
 	first_input_tx_hash: &str,
 	first_input_index: u32,
@@ -138,9 +122,6 @@ pub fn calculate_type_id(
 	Ok(format!("0x{}", hex::encode(type_id)))
 }
 
-/// Reads the type script code_hash from `AGENT_IDENTITY_TYPE_CODE_HASH` env var
-/// and the dep tx_hash from `AGENT_IDENTITY_DEP_TX_HASH`. Both must be set after
-/// the contract is deployed via `POST /admin/deploy-bin`.
 pub async fn build_spawn_agent(
 	state: &AppState,
 	compressed_pubkey: &[u8; 33],
@@ -302,11 +283,6 @@ pub async fn find_identity_cell_outpoint(
 	Ok(None)
 }
 
-/// The identity cell is locked under the child's lock_args, but the parent funds
-/// and signs the transaction. Optionally creates a funding cell for the child.
-///
-/// When parent_lock_args is non-zero, the parent's identity cell is included as
-/// a cell_dep so the type script can verify spending limit inheritance.
 pub async fn build_spawn_sub_agent(
 	state: &AppState,
 	child_pubkey: &[u8; 33],

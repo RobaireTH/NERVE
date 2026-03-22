@@ -33,7 +33,6 @@ fn dob_badge_env() -> Result<(String, String), TxBuildError> {
 
 use super::{our_lock, placeholder_witnesses, MIN_CELL_CAPACITY};
 
-/// Computes the event_id_hash from a job's outpoint: blake2b(tx_hash || index_u64_le)[..20].
 pub fn compute_event_id_hash(job_tx_hash: &[u8; 32], job_index: u64) -> [u8; 20] {
 	let mut hasher = Blake2bBuilder::new(32)
 		.personal(b"ckb-default-hash")
@@ -47,7 +46,6 @@ pub fn compute_event_id_hash(job_tx_hash: &[u8; 32], job_index: u64) -> [u8; 20]
 	out
 }
 
-/// Computes the recipient_hash from lock_args: blake2b(lock_args_bytes)[..20].
 pub fn compute_recipient_hash(lock_args: &[u8; 20]) -> [u8; 20] {
 	let mut hasher = Blake2bBuilder::new(32)
 		.personal(b"ckb-default-hash")
@@ -60,7 +58,6 @@ pub fn compute_recipient_hash(lock_args: &[u8; 20]) -> [u8; 20] {
 	out
 }
 
-/// Encodes badge cell data: [0x01, 0x01, blake2b(content_json)[0..32]] = 34 bytes.
 pub fn encode_badge_data(content_json: &str) -> [u8; 34] {
 	let mut hasher = Blake2bBuilder::new(32)
 		.personal(b"ckb-default-hash")
@@ -76,8 +73,6 @@ pub fn encode_badge_data(content_json: &str) -> [u8; 34] {
 	data
 }
 
-/// 60-byte type_args: type_id[20] || event_id_hash[20] || recipient_hash[20].
-/// The badge cell is placed under the worker's lock, making it soulbound.
 pub async fn build_mint_badge(
 	state: &AppState,
 	job_tx_hash: &str,

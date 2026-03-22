@@ -86,7 +86,6 @@ fn parse_rep_data(
 	Ok((pending_type, jobs_completed, jobs_abandoned, pending_expires_at, agent_lock_args, proof_root, settlement_hash))
 }
 
-/// Computes settlement_hash = blake2b(job_tx_hash || job_index || worker_lock_args || poster_lock_args || reward || result_hash).
 pub fn compute_settlement_hash(
 	job_tx_hash: &[u8; 32],
 	job_index: u32,
@@ -113,7 +112,6 @@ pub fn compute_settlement_hash(
 	out
 }
 
-/// Computes new_proof_root = blake2b(old_root || settlement_hash). Mirrors on-chain logic.
 pub fn compute_proof_root(old_root: &[u8; 32], settlement_hash: &[u8; 32]) -> [u8; 32] {
 	use blake2b_rs::Blake2bBuilder;
 
@@ -237,9 +235,6 @@ pub async fn build_create_reputation(
 	Ok((tx, tx_hash_str))
 }
 
-/// `propose_type`: 1 = completed, 2 = abandoned.
-/// `dispute_window_blocks`: number of blocks until the proposal can be finalized.
-/// `settlement_hash`: evidence hash linking to a real job completion.
 pub async fn build_propose_reputation(
 	state: &AppState,
 	rep_tx_hash: &str,
@@ -280,7 +275,6 @@ pub async fn build_propose_reputation(
 		&settlement_hash,
 	);
 
-	// Fee inputs.
 	let (fee_inputs, fee_capacity) = gather_fee_inputs(state, ESTIMATED_FEE).await?;
 	let change_capacity = fee_capacity - ESTIMATED_FEE;
 
@@ -323,8 +317,6 @@ pub async fn build_propose_reputation(
 	Ok((tx, tx_hash_str))
 }
 
-/// Increments the relevant counter and clears the pending state.
-/// Sets the `since` field on the reputation input to enforce the dispute window.
 pub async fn build_finalize_reputation(
 	state: &AppState,
 	rep_tx_hash: &str,

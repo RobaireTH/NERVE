@@ -1,40 +1,3 @@
-// Job Cell Type Script
-//
-// Enforces the job marketplace state machine at CKB consensus level.
-//
-// State machine (strict adjacent transitions only):
-//   Open (0) → Reserved (1): worker assigned, worker_lock_args must be set
-//   Reserved (1) → Claimed (2): worker begins execution
-//   Claimed (2) → Completed (3): work done, cell can be settled
-//   Any → Expired (4): poster cancels (TTL-gated for non-Open states)
-//
-// Invariants:
-//   - Status can only advance by exactly one step (Open/Reserved/Claimed may jump to Expired).
-//   - poster_lock_args, reward, capability_hash, and ttl are immutable after creation.
-//   - On Open→Reserved, worker_lock_args must be non-zero.
-//   - On Open→Reserved, if ttl > 0, header_deps[0] must prove current_block < ttl.
-//   - On Open→Reserved, if capability_hash is non-zero, a cell_dep must contain
-//     a typed cell whose data matches the capability NFT layout with matching
-//     capability_hash and agent_lock_args == worker_lock_args.
-//   - On Reserved/Claimed→Expired, if ttl > 0, header_deps[0] must prove current_block >= ttl.
-//   - Cell destruction rules (status-specific):
-//     - Open: always allowed (poster cancels unclaimed job).
-//     - Reserved: only after TTL (prevents rug-pull during direct destruction too).
-//     - Claimed: settlement requires total non-poster outputs >= reward_shannons.
-//     - Completed/Expired: always allowed (cleanup).
-//   - Creation: status=Open, poster_lock_args non-zero, reward > 0.
-//
-// Cell data layout (122 bytes minimum, little-endian):
-//   [0]       version: u8         = 0
-//   [1]       status: u8          0=Open 1=Reserved 2=Claimed 3=Completed 4=Expired
-//   [2..22]   poster_lock_args:   [u8; 20]
-//   [22..42]  worker_lock_args:   [u8; 20]  (zeros until reserved)
-//   [42..50]  reward_shannons:    u64 LE
-//   [50..58]  ttl_block_height:   u64 LE
-//   [58..90]  capability_hash:    [u8; 32]
-//   [90..122] description_hash:   [u8; 32]  blake2b of description text (zeros if none)
-//   [122..]   description:        [u8; N]   raw UTF-8 task description (optional)
-
 #![no_std]
 #![no_main]
 #![allow(unexpected_cfgs)]
@@ -133,7 +96,6 @@ fn validate_transition() -> Result<(), i8> {
 		return Err(ERR_INVALID_DATA);
 	}
 
-	// Cell destruction: status-specific rules (see validate_destruction).
 	let new = match load_cell_data(0, Source::GroupOutput) {
 		Ok(d) => d,
 		Err(SysError::IndexOutOfBound) => return validate_destruction(&old),
@@ -147,7 +109,6 @@ fn validate_transition() -> Result<(), i8> {
 	let old_status = old[1];
 	let new_status = new[1];
 
-	// Enforce strict state transitions: only adjacent steps or jump to Expired.
 	let valid_transition = match (old_status, new_status) {
 		(STATUS_OPEN, STATUS_RESERVED) => true,
 		(STATUS_RESERVED, STATUS_CLAIMED) => true,
@@ -161,10 +122,8 @@ fn validate_transition() -> Result<(), i8> {
 		return Err(ERR_INVALID_STATUS);
 	}
 
-	// TTL enforcement via header_deps[0].
 	let ttl = read_u64_le(&old[50..58]).ok_or(ERR_INVALID_DATA)?;
 
-	// Open → Reserved: reject if the job has expired.
 	if old_status == STATUS_OPEN && new_status == STATUS_RESERVED {
 		if ttl > 0 {
 			let current_block = load_header_dep_block_number()?;
@@ -173,12 +132,10 @@ fn validate_transition() -> Result<(), i8> {
 			}
 		}
 
-		// Worker_lock_args must be non-zero.
 		if new[22..42].iter().all(|&b| b == 0) {
 			return Err(ERR_ZERO_WORKER);
 		}
 
-		// Capability gate: if capability_hash is non-zero, verify worker holds the NFT.
 		let cap_hash = &new[58..90];
 		if !cap_hash.iter().all(|&b| b == 0) {
 			if !verify_capability_in_cell_deps(cap_hash, &new[22..42])? {
@@ -187,8 +144,6 @@ fn validate_transition() -> Result<(), i8> {
 		}
 	}
 
-	// Reserved/Claimed → Expired: only allowed after TTL (prevents poster rug-pulling workers).
-	// Open → Expired: always allowed (poster can cancel unclaimed jobs).
 	if new_status == STATUS_EXPIRED && old_status != STATUS_OPEN {
 		if ttl > 0 {
 			let current_block = load_header_dep_block_number()?;
@@ -198,7 +153,6 @@ fn validate_transition() -> Result<(), i8> {
 		}
 	}
 
-	// Immutable fields: poster_lock_args, reward, ttl, capability_hash, description.
 	if old[2..22] != new[2..22] {
 		return Err(ERR_IMMUTABLE_FIELD_CHANGED);
 	}
@@ -227,15 +181,11 @@ fn validate_transition() -> Result<(), i8> {
 	Ok(())
 }
 
-/// Validates cell destruction based on the old status.
 fn validate_destruction(old: &[u8]) -> Result<(), i8> {
 	let status = old[1];
 	match status {
-		// Open: poster cancels unclaimed job, always allowed.
 		STATUS_OPEN => Ok(()),
 
-		// Reserved: poster cancels assigned job, only after TTL.
-		// Same logic as the state-transition TTL check, applied to direct destruction.
 		STATUS_RESERVED => {
 			let ttl = read_u64_le(&old[50..58]).ok_or(ERR_INVALID_DATA)?;
 			if ttl > 0 {
@@ -252,16 +202,12 @@ fn validate_destruction(old: &[u8]) -> Result<(), i8> {
 			verify_settlement_outputs(old)
 		}
 
-		// Completed/Expired: cleanup, always allowed.
 		STATUS_COMPLETED | STATUS_EXPIRED => Ok(()),
 
 		_ => Err(ERR_INVALID_STATUS),
 	}
 }
 
-/// If the job has a non-zero description_hash, the worker must supply a result proof
-/// in witness input_type: [0..32] result_hash, [32..] result_data.
-/// Verifies blake2b(description_hash || result_data) == result_hash.
 fn verify_result_binding(old: &[u8]) -> Result<(), i8> {
 	let desc_hash = &old[90..122];
 	if desc_hash.iter().all(|&b| b == 0) {
@@ -291,7 +237,6 @@ fn verify_result_binding(old: &[u8]) -> Result<(), i8> {
 	Ok(())
 }
 
-/// Verifies that outputs locked to the worker total >= reward_shannons.
 fn verify_settlement_outputs(old: &[u8]) -> Result<(), i8> {
 	let worker_lock_args = &old[22..42];
 	let reward = read_u64_le(&old[42..50]).ok_or(ERR_INVALID_DATA)?;
@@ -324,16 +269,11 @@ fn read_u64_le(bytes: &[u8]) -> Option<u64> {
 	Some(u64::from_le_bytes(arr))
 }
 
-/// Reads the block number from header_deps[0].
 fn load_header_dep_block_number() -> Result<u64, i8> {
 	let header = load_header(0, Source::HeaderDep).map_err(sys_err)?;
 	read_u64_le(header.raw().number().as_slice()).ok_or(ERR_INVALID_DATA)
 }
 
-/// Checks whether a capability NFT matching `cap_hash` and `worker_args` exists in cell_deps.
-///
-/// Capability NFT data layout: [0] version, [1] proof_type, [2..22] agent_lock_args, [22..54] capability_hash.
-/// The cell must have a type script to prevent spoofing with untyped cells.
 fn verify_capability_in_cell_deps(cap_hash: &[u8], worker_args: &[u8]) -> Result<bool, i8> {
 	let mut i = 0;
 	loop {
@@ -344,7 +284,6 @@ fn verify_capability_in_cell_deps(cap_hash: &[u8], worker_args: &[u8]) -> Result
 		};
 
 		if data.len() >= 54 && data[22..54] == *cap_hash && data[2..22] == *worker_args {
-			// Verify the cell has a type script (prevents spoofing with plain data cells).
 			let has_type = load_cell_type_hash(i, Source::CellDep)
 				.map_err(sys_err)?
 				.is_some();

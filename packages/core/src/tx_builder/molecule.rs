@@ -8,10 +8,6 @@ use serde_json::Value;
 
 use crate::errors::TxBuildError;
 
-/// Computes the CKB transaction hash from a JSON-RPC transaction object.
-///
-/// The tx_hash is blake2b-256 of the molecule-encoded RawTransaction,
-/// which excludes witnesses. This allows signing without an RPC round-trip.
 pub fn compute_raw_tx_hash(tx: &Value) -> Result<String, TxBuildError> {
 	let raw_bytes = serialize_raw_transaction(tx)?;
 	let mut hasher = Blake2bBuilder::new(32)
