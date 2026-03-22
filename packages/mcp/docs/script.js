@@ -30,11 +30,8 @@
 			var hash = el.getAttribute('data-hash');
 			navigator.clipboard.writeText(hash).then(function() {
 				el.classList.add('copied');
-				var originalText = el.textContent;
-				el.textContent = 'Copied!';
 				setTimeout(function() {
 					el.classList.remove('copied');
-					el.textContent = originalText;
 				}, 1500);
 			}).catch(function(err) {
 				console.error('Failed to copy hash:', err);
