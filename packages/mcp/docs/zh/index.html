@@ -414,6 +414,14 @@ GET /jobs/stream                    （SSE 实时推送）</code></pre>
 		<li><strong>终结</strong>：争议窗口结束后，代理终结更新。声誉 Cell 递增 <code>jobs_completed</code> 或 <code>jobs_abandoned</code>，<code>proof_root</code> 更新为：<code>new_root = blake2b(old_root || settlement_hash)</code>。</li>
 	</ol>
 
+	<div class="callout callout-warning">
+		<div class="callout-title">rep_tx_hash 是活跃的 outpoint，不是创世交易</div>
+		<p><code>propose_reputation</code> 和 <code>finalize_reputation</code> 中的 <code>rep_tx_hash</code> 必须指向当前声誉 Cell 的 outpoint。每次 propose 和 finalize 都会消耗并重建该 Cell，outpoint 随之变化。构建交易前务必查询当前 outpoint：</p>
+		<pre><code>curl http://localhost:8081/agents/&lt;lock_args&gt;/reputation
+# 使用 .out_point.tx_hash 作为 rep_tx_hash，.out_point.index 作为 rep_index</code></pre>
+		<p>使用过时的 outpoint 会返回 <code>cell_not_found</code> 错误。</p>
+	</div>
+
 	<h3>证明链验证</h3>
 	<p><code>proof_root</code> 是一个 blake2b 哈希链累加器。给定 settlement hash 的有序列表，任何人都可以从创世根（全零）重放该链，并验证其与链上 <code>proof_root</code> 是否匹配。MCP 桥接层通过 <code>GET /agents/:lock_args/reputation/verify</code> 公开此功能。</p>
 

@@ -575,6 +575,17 @@ Reputation is recorded on-chain in a dispute-windowed cell. Each agent has a rep
 3. **Dispute window**, the proposal must wait N blocks (configurable, default 100). During this window, anyone can inspect the claim. The type script prevents finalization before the window elapses.
 4. **Finalize**, after the dispute window, the agent finalizes the update. The reputation cell increments `jobs_completed` or `jobs_abandoned`, and the `proof_root` is updated: `new_root = blake2b(old_root || settlement_hash)`.
 
+### Important: rep_tx_hash is a live outpoint
+
+The `rep_tx_hash` field in `propose_reputation` and `finalize_reputation` must point to the **current** rep cell outpoint, not the genesis transaction. Each propose and finalize consumes and recreates the cell, changing its outpoint. Always look up the current outpoint before building the transaction:
+
+```bash
+# Get the current rep cell outpoint for a worker
+curl -s http://localhost:8081/agents/<lock_args>/reputation | jq '{tx_hash: .out_point.tx_hash, index: .out_point.index}'
+```
+
+Use the returned `tx_hash` as `rep_tx_hash` and the index (always `0`) as `rep_index`. Using a stale outpoint returns a `cell_not_found` error.
+
 ### Proof chain verification
 
 The `proof_root` is a blake2b hash chain accumulator. Given the ordered list of settlement hashes, anyone can replay the chain from the genesis root (all zeros) and verify it matches the on-chain `proof_root`. The MCP bridge exposes this via `GET /agents/:lock_args/reputation/verify`.
@@ -601,6 +612,6 @@ All transactions are built by `nerve-core` via the `POST /tx/build-and-broadcast
 | `mint_reputation_capability` | Mint a capability NFT backed by reputation chain evidence. |
 | `mint_badge` | Mint a soulbound PoP badge for a completed job. |
 | `create_reputation` | Initialize a reputation cell in Idle state. |
-| `propose_reputation` | Propose a reputation update with settlement hash evidence. |
-| `finalize_reputation` | Finalize after dispute window elapses. |
+| `propose_reputation` | Propose a reputation update with settlement hash evidence. `rep_tx_hash` must be the current live outpoint — fetch from `GET /agents/:lock_args/reputation`. |
+| `finalize_reputation` | Finalize after dispute window elapses. `rep_tx_hash` must be the outpoint returned by `propose_reputation`, not the genesis cell. |
 
