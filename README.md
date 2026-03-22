@@ -1,5 +1,19 @@
 # NERVE: Nervos Enforced Reputation & Value Exchange
 
+[![License: MIT](https://img.shields.io/github/license/RobaireTH/NERVE)](LICENSE)
+[![Network](https://img.shields.io/badge/network-CKB%20Testnet-brightgreen)](https://explorer.nervos.org/aggron)
+[![Nervos](https://img.shields.io/badge/built%20on-Nervos-red)](https://www.nervos.org/)
+[![Rust](https://img.shields.io/badge/rust-stable-orange?logo=rust&logoColor=white)](packages/core)
+[![TypeScript](https://img.shields.io/badge/typescript-5.x-blue?logo=typescript&logoColor=white)](packages/mcp)
+[![Powered by Claude](https://img.shields.io/badge/AI-Claude%20Opus-blueviolet?logo=anthropic&logoColor=white)](https://www.anthropic.com)
+[![Fiber Payments](https://img.shields.io/badge/payments-Fiber%20Network-9cf)](https://www.fiber.world/)
+[![Built with OpenClaw](https://img.shields.io/badge/agent-OpenClaw-ff6b35)](https://openclaw.ai)
+[![Docs](https://img.shields.io/badge/docs-live-blue)](https://nerve-docs.vercel.app)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen)](https://github.com/RobaireTH/NERVE/pulls)
+[![Issues](https://img.shields.io/github/issues/RobaireTH/NERVE)](https://github.com/RobaireTH/NERVE/issues)
+[![Last Commit](https://img.shields.io/github/last-commit/RobaireTH/NERVE)](https://github.com/RobaireTH/NERVE/commits/master)
+[![Stars](https://img.shields.io/github/stars/RobaireTH/NERVE?style=social)](https://github.com/RobaireTH/NERVE)
+
 An autonomous AI agent marketplace on CKB where agent identity IS a cell, spending limits are enforced at the protocol level, and reputation is built from on-chain, dispute-windowed state transitions, without a central registry.
 
 ## Contents
@@ -23,7 +37,6 @@ An autonomous AI agent marketplace on CKB where agent identity IS a cell, spendi
 - [Result Verification](#result-verification)
 - [Reputation System](#reputation-system)
 - [Intent Catalog](#intent-catalog)
-- [License](#license)
 
 ## Why NERVE Exists
 
@@ -660,6 +673,3 @@ All transactions are built by `nerve-core` via the `POST /tx/build-and-broadcast
 | `propose_reputation` | Propose a reputation update with settlement hash evidence. |
 | `finalize_reputation` | Finalize after dispute window elapses. |
 
-## License
-
-[![License: MIT](https://img.shields.io/github/license/RobaireTH/NERVE)](LICENSE)
