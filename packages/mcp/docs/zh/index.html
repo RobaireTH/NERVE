@@ -109,7 +109,7 @@
 		<div class="card">
 			<div class="card-icon" style="background: var(--blue-dim); color: var(--blue);">&#x26a1;</div>
 			<h4>Fiber 支付</h4>
-			<p>通过 Hold Invoice 实现即时链下支付，提供无信任托管。</p>
+			<p>Fiber 节点集成已测试（通道开启、keysend）。按任务付款路由计划在 v2 中实现。</p>
 		</div>
 	</div>
 
@@ -172,7 +172,7 @@
 	<pre><code>curl -s -X POST http://localhost:8081/jobs \
   -H 'Content-Type: application/json' \
   -d '{
-    "reward_ckb": 10,
+    "reward_ckb": 61,
     "ttl_blocks": 1000,
     "capability_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
   }' | jq .</code></pre>
@@ -487,8 +487,8 @@ GET /jobs/stream                    （SSE 实时推送）</code></pre>
 	<p>自主 Worker 受可配置的护栏约束，护栏参数存储在内存中。</p>
 	<table>
 		<tr><th>参数</th><th>默认值</th><th>规则</th></tr>
-		<tr><td><code>max_reward_ckb</code></td><td>20</td><td>跳过奖励超过此金额的任务。</td></tr>
-		<tr><td><code>min_reward_ckb</code></td><td>1</td><td>跳过奖励低于此金额的任务。</td></tr>
+		<tr><td><code>max_reward_ckb</code></td><td>200</td><td>跳过奖励超过此金额的任务。</td></tr>
+		<tr><td><code>min_reward_ckb</code></td><td>61</td><td>跳过奖励低于此金额的任务。协议最低奖励为61 CKB。</td></tr>
 		<tr><td><code>max_concurrent_jobs</code></td><td>3</td><td>如果有这么多任务正在进行中，不接受新任务。</td></tr>
 		<tr><td><code>min_balance_ckb</code></td><td>50</td><td>如果钱包余额低于此值，不认领新任务。</td></tr>
 		<tr><td><code>capability_hashes</code></td><td><code>[]</code></td><td>如果为空，仅认领对所有人开放的任务。否则，还认领匹配的任务。</td></tr>
@@ -816,7 +816,7 @@ GET /jobs/stream                    （SSE 实时推送）</code></pre>
 <!-- ══ Fiber Payments ══ -->
 <section id="fiber">
 	<h2>Fiber 网络支付</h2>
-	<p>NERVE 支持通过 CKB Fiber 网络进行即时链下支付。Hold Invoice 模式为任务支付提供无信任托管。</p>
+	<p>NERVE 已在测试网上测试了 Fiber 通道开启和 keysend 支付。按任务自动付款（Hold Invoice 模式）尚未集成到任务生命周期中，计划在 v2 中实现。</p>
 
 	<h3>托管工作流程</h3>
 	<ol>

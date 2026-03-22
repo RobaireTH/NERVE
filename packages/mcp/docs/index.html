@@ -109,7 +109,7 @@
 		<div class="card">
 			<div class="card-icon" style="background: var(--blue-dim); color: var(--blue);">&#x26a1;</div>
 			<h4>Fiber Payments</h4>
-			<p>Instant off-chain payments via hold invoices for trustless escrow.</p>
+			<p>Fiber node integration tested (channels, keysend). Per-job payment routing is planned for v2.</p>
 		</div>
 	</div>
 
@@ -172,7 +172,7 @@
 	<pre><code>curl -s -X POST http://localhost:8081/jobs \
   -H 'Content-Type: application/json' \
   -d '{
-    "reward_ckb": 10,
+    "reward_ckb": 61,
     "ttl_blocks": 1000,
     "capability_hash": "0x0000000000000000000000000000000000000000000000000000000000000000"
   }' | jq .</code></pre>
@@ -511,8 +511,8 @@ GET /jobs/stream                    (SSE for real-time)</code></pre>
 	<p>The autonomous worker is bounded by configurable guardrails stored in memory.</p>
 	<table>
 		<tr><th>Parameter</th><th>Default</th><th>Rule</th></tr>
-		<tr><td><code>max_reward_ckb</code></td><td>20</td><td>Skip jobs with reward above this amount.</td></tr>
-		<tr><td><code>min_reward_ckb</code></td><td>1</td><td>Skip jobs with reward below this amount.</td></tr>
+		<tr><td><code>max_reward_ckb</code></td><td>200</td><td>Skip jobs with reward above this amount.</td></tr>
+		<tr><td><code>min_reward_ckb</code></td><td>61</td><td>Skip jobs with reward below this amount. Protocol minimum is 61 CKB.</td></tr>
 		<tr><td><code>max_concurrent_jobs</code></td><td>3</td><td>Do not take new jobs if this many are in-flight.</td></tr>
 		<tr><td><code>min_balance_ckb</code></td><td>50</td><td>Do not claim new jobs if wallet balance is below this.</td></tr>
 		<tr><td><code>capability_hashes</code></td><td><code>[]</code></td><td>If empty, only claim open-to-all jobs. Otherwise, also claim matching jobs.</td></tr>
@@ -840,9 +840,14 @@ GET /jobs/stream                    (SSE for real-time)</code></pre>
 <!-- ══ Fiber Payments ══ -->
 <section id="fiber">
 	<h2>Fiber Network Payments</h2>
-	<p>NERVE supports instant off-chain payments via the CKB Fiber Network. The hold invoice pattern enables trustless escrow for job payments.</p>
+	<p>Fiber channel open and keysend payments have been tested on CKB testnet. Per-job payment routing (the hold invoice escrow pattern described below) is not yet wired into the job lifecycle and is planned for v2.</p>
 
-	<h3>Escrow Workflow</h3>
+	<div class="callout callout-warning">
+		<div class="callout-title">v1 Status</div>
+		<p>The Fiber API endpoints are available and the node integration works. Automatic payment on job completion is not implemented. All job rewards currently settle on-chain via the job cell.</p>
+	</div>
+
+	<h3>Planned: Hold Invoice Escrow (v2)</h3>
 	<ol>
 		<li><strong>Worker generates a secret preimage</strong> and computes <code>payment_hash = sha256(preimage)</code>.</li>
 		<li><strong>Worker shares the payment_hash</strong> with the poster (not the preimage).</li>
@@ -850,11 +855,6 @@ GET /jobs/stream                    (SSE for real-time)</code></pre>
 		<li><strong>Worker completes the job</strong> and submits the result on-chain.</li>
 		<li><strong>Worker reveals the preimage</strong>: <code>POST /fiber/settle { payment_hash, preimage }</code>. Funds are instantly released.</li>
 	</ol>
-
-	<div class="callout callout-tip">
-		<div class="callout-title">Trustless by default</div>
-		<p>If the worker never reveals the preimage, the hold invoice expires and funds return to the poster. No trust required.</p>
-	</div>
 
 	<h3>Setup</h3>
 	<p>Fiber requires a running Fiber node. See <code>scripts/setup_testnet.sh</code> for setup instructions. Set <code>FIBER_RPC_URL</code> in your environment (default: <code>http://127.0.0.1:8227</code>).</p>
