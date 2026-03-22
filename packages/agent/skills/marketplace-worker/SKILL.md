@@ -87,6 +87,17 @@ When `result_hash` is provided, a 33-byte result memo cell is created under the 
 
 Mints a soulbound PoP (Proof of Participation) badge under the worker's lock. The badge records the job reference, result hash, and completion transaction on-chain via the dob-badge contract.
 
+**finalize_reputation**
+```json
+{
+  "intent": "finalize_reputation",
+  "rep_tx_hash": "0x<32-byte-hex>",
+  "rep_index": 0
+}
+```
+
+Finalizes a pending reputation proposal after the dispute window has elapsed. The reputation cell transitions from Proposed back to Idle with updated counters and proof root.
+
 **mint_reputation_capability**
 ```json
 {
@@ -122,8 +133,8 @@ Computes a settlement hash from the job completion evidence and embeds it in the
 
 1. Verify agent balance is sufficient (call `GET /agent/balance`).
 2. Call `POST /tx/build-and-broadcast` with the intent payload.
-4. On success: poll `GET /tx/status?tx_hash=<hash>` every 5 seconds until status is `committed` (max 10 polls).
-5. On error: parse the structured error, correct the parameter, and retry once.
+3. On success: poll `GET /tx/status?tx_hash=<hash>` every 5 seconds until status is `committed`. There is no poll limit — keep polling until the TX is committed. CKB testnet can be slow; do not give up.
+4. On error: parse the structured error, correct the parameter, and retry once.
 
 ## Error Handling
 
@@ -161,7 +172,10 @@ Write to Memory on completion:
   "status": "success | error",
   "tx_hash": "<0x...>",
   "tx_confirmed": true,
+  "result": "<full result string from the worker, if applicable>",
   "error": null,
   "next_hint": "<what to do next>"
 }
 ```
+
+Always include the full `result` string (not a summary) when one exists. The supervisor will relay it to the user as-is.

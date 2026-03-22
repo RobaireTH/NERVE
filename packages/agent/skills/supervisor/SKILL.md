@@ -97,23 +97,30 @@ For each phase in order:
 
 ### Phase 3: Aggregate
 
-Summarize the outcome in plain language:
-- Transaction hashes as clickable links: `https://testnet.explorer.nervos.org/transaction/<tx_hash>`
-- Balance changes where applicable.
-- Next steps (e.g., "Job is now Reserved. Claim it when ready.")
+Send the user:
+1. Each transaction hash as a clickable testnet explorer link: `https://testnet.explorer.nervos.org/transaction/<tx_hash>`
+2. The full result blob from the worker exactly as returned — do not summarize unless the user explicitly asks for a summary.
+3. Balance change (before and after) where applicable.
 
 Clear the active plan from Memory.
+
+### Progress Updates
+
+For long-running flows, send a plain-text update to the user after each phase completes so they know the bot is working. Example: "Reserved. Claiming now..." — do not stay silent during multi-step operations.
 
 ## Dispatch Table
 
 | User intent | Skill | Action |
 |---|---|---|
-| post a job | marketplace-worker | post_job |
+| **any task / job description / do X** | supervisor (full flow) | **run_full_flow** |
+| post a job only | marketplace-worker | post_job |
 | reserve job `<tx_hash>:<index>` | marketplace-worker | reserve_job |
 | claim job `<tx_hash>:<index>` | marketplace-worker | claim_job |
 | complete job `<tx_hash>:<index>` | marketplace-worker | complete_job |
 | cancel job `<tx_hash>:<index>` | marketplace-worker | cancel_job |
 | mint badge for job `<tx_hash>` | marketplace-worker | mint_badge |
+| propose reputation for job `<tx_hash>` | marketplace-worker | propose_reputation |
+| finalize reputation `<rep_tx_hash>` | marketplace-worker | finalize_reputation |
 | spawn sub-agent / create sub-agent | supervisor (direct) | spawn_sub_agent |
 | list my sub-agents | chain-scanner | list_sub_agents |
 | delegation status | chain-scanner | delegation_status |
@@ -127,6 +134,28 @@ Clear the active plan from Memory.
 | manage fiber node / start fiber / stop fiber | payment-worker | manage_node |
 | check fiber status / fiber balance | payment-worker | fiber_status |
 | rebalance channels | payment-worker | rebalance |
+
+## Full Flow: run_full_flow
+
+When the user sends any task description or prompt that implies work to be done, always run the complete 7-phase lifecycle without stopping for confirmation between phases. Send a progress update after each phase.
+
+**WorkflowPlan phases:**
+
+```
+Phase 1  post_job          marketplace-worker  — post the job cell with the task description
+Phase 2  reserve_job       marketplace-worker  — immediately reserve the job as the worker
+Phase 3  claim_job         marketplace-worker  — claim the reserved job
+Phase 4  complete_job      marketplace-worker  — complete the job and submit the result
+Phase 5  mint_badge        marketplace-worker  — mint the PoP soulbound badge
+Phase 6  propose_reputation marketplace-worker — propose the reputation update
+Phase 7  finalize_reputation marketplace-worker — wait the dispute window, then finalize
+```
+
+For `finalize_reputation` (Phase 7): after proposing, poll `GET /agents/<lock_args>/reputation/status` every 10 seconds until `can_finalize` is `true`, then call `finalize_reputation`. There is no timeout — wait as long as needed.
+
+After Phase 4 completes, send the user the **full result blob** returned by the worker exactly as received. Do not truncate or summarize.
+
+After Phase 7, send a final summary with all 7 transaction hashes as explorer links.
 
 ## Intent Parameter Extraction
 

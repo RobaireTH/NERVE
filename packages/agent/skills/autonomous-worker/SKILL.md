@@ -160,7 +160,7 @@ Based on the current stage:
    ```
    GET http://localhost:8080/tx/status?tx_hash=<claim_tx>
    ```
-   Poll every 5 seconds, up to 20 times. If not committed, set stage to `failed` with error `"claim tx not confirmed"`.
+   Poll every 5 seconds until `committed`. No poll limit — never give up on a pending TX.
 
 **If stage is `claimed`:**
 1. Execute task (same as Step 4c): reason through the task, produce a result string, compute `result_hash`.
@@ -178,8 +178,10 @@ Based on the current stage:
 3. If successful, extract `tx_hash` from the response.
 4. Update the record: set `stage` to `completed`, set `complete_tx` to the new tx_hash, set `result_hash`.
 5. Write updated `nerve:auto:inflight` to Memory immediately.
-6. Wait for TX confirmation. If not committed, set stage to `failed` with error `"complete tx not confirmed"`.
+6. Wait for TX confirmation. Poll every 5 seconds until `committed`. No poll limit.
 7. If confirmed, attempt to mint a PoP badge (same as Step 4e). Badge failure is non-fatal.
+8. After badge TX confirms (or fails non-fatally), propose reputation (same as Step 4f). Non-fatal.
+9. After proposing, wait for dispute window, then finalize reputation (same as Step 4g). Non-fatal.
 
 ### 2c. On any error during advancement
 
@@ -267,8 +269,8 @@ If successful:
 1. Extract `tx_hash` from the response.
 2. Create a new in-flight record with `stage: "reserved"`, `reserve_tx: tx_hash`, `started_at: now()`.
 3. Append to `nerve:auto:inflight` and write to Memory immediately.
-4. Wait for TX confirmation (poll `GET /tx/status?tx_hash=<reserve_tx>` every 5s, max 20 polls).
-5. If not confirmed, set `stage` to `failed` with error `"reserve tx not confirmed"`.
+4. Wait for TX confirmation (poll `GET /tx/status?tx_hash=<reserve_tx>` every 5s until `committed`, no poll limit).
+5. If the RPC returns a hard error (rejected/unknown), set `stage` to `failed`. Never fail on a still-pending TX.
 
 If the reserve call fails (e.g., job was sniped by another agent), skip this job and continue to the next.
 
@@ -342,7 +344,47 @@ POST http://localhost:8080/tx/build-and-broadcast
 }
 ```
 
-If successful: update the record `badge_tx` with the new tx_hash. Badge minting failure is **non-fatal**. Log the error but do NOT mark the job as failed. The job was already completed successfully.
+If successful: update the record `badge_tx` with the new tx_hash. Badge minting failure is **non-fatal**.
+
+### 4f. Propose reputation
+
+After the badge TX confirms (or fails non-fatally), propose the reputation update:
+
+```
+POST http://localhost:8080/tx/build-and-broadcast
+{
+  "intent": "propose_reputation",
+  "rep_tx_hash": "<reputation cell tx_hash from agent identity lookup>",
+  "rep_index": 0,
+  "propose_type": 1,
+  "dispute_window_blocks": 100,
+  "job_tx_hash": "<original job outpoint tx_hash>",
+  "job_index": <original job outpoint index>,
+  "worker_lock_args": "<lock_args from Step 1>",
+  "poster_lock_args": "<poster_lock_args from job cell>",
+  "reward_shannons": <reward in shannons from job cell>,
+  "result_hash": "<result_hash from Step 4c>"
+}
+```
+
+To get the reputation cell outpoint: `GET http://localhost:8081/agents/<lock_args>/reputation` — use the `out_point` field.
+
+If successful: update the record `propose_rep_tx` with the new tx_hash. Reputation proposal failure is **non-fatal**.
+
+### 4g. Finalize reputation
+
+After proposing, poll `GET http://localhost:8081/agents/<lock_args>/reputation/status` every 10 seconds until `can_finalize` is `true`. Then:
+
+```
+POST http://localhost:8080/tx/build-and-broadcast
+{
+  "intent": "finalize_reputation",
+  "rep_tx_hash": "<propose_rep_tx>",
+  "rep_index": 0
+}
+```
+
+If successful: update the record `finalize_rep_tx` with the new tx_hash. Finalization failure is **non-fatal**.
 
 ## Step 5: Log and Report
 
@@ -367,7 +409,12 @@ Write `nerve:auto:stats` to Memory.
 
 ### 5c. Summary
 
-Output a brief summary of this run:
+For each job completed this run, send back to the user:
+1. The full result blob from Step 4c — not a summary, the complete text exactly as produced.
+2. All transaction hashes as testnet explorer links: `https://testnet.explorer.nervos.org/transaction/<tx_hash>`
+3. Badge, reputation proposal, and finalization TX hashes if available.
+
+Then output the run stats:
 ```
 Autonomous worker run complete.
   In-flight: <count> jobs
@@ -388,6 +435,6 @@ Autonomous worker: no actionable jobs found.
 | Service unreachable (TX Builder or MCP) | Exit gracefully. Will retry on next cron cycle. |
 | CellNotFound / job sniped | Mark in-flight record as `failed`, continue processing other jobs. |
 | InsufficientFunds | Mark record as `failed`, skip new job selection for this cycle. |
-| TX not confirmed after 20 polls | Mark record as `failed` with timeout error. |
+| TX hard-rejected by node | Mark record as `failed` with the rejection error. Never fail on a still-pending TX. |
 | Wrong job status | Fetch actual on-chain status and reconcile. If recoverable, update stage. Otherwise mark `failed`. |
 | Memory read/write failure | Log the error and exit. Do not proceed with partial state. |
