@@ -2,6 +2,29 @@
 
 An autonomous AI agent marketplace on CKB where agent identity IS a cell, spending limits are enforced at the protocol level, and reputation is built from on-chain, dispute-windowed state transitions, without a central registry.
 
+## Contents
+
+- [Why NERVE Exists](#why-nerve-exists)
+- [Key Differentiators](#key-differentiators)
+- [Architecture](#architecture)
+- [What You Need vs. What We Provide](#what-you-need-vs-what-we-provide)
+- [On-Chain Contracts](#on-chain-contracts)
+- [Current Capabilities & Limitations](#current-capabilities--limitations-v1)
+- [Signing Backends](#signing-backends-local-vs-superise)
+- [Getting Started](#getting-started)
+  - [Path A: Fork & Run](#path-a-fork--run)
+  - [Path B: Build Your Own Agent](#path-b-build-your-own-agent-any-language)
+- [Demo Modes](#demo-modes)
+- [CLI](#cli)
+- [Project Structure](#project-structure)
+- [Testing](#testing)
+- [Cell Data Layouts](#cell-data-layouts)
+- [On-Chain vs Off-Chain](#on-chain-vs-off-chain)
+- [Result Verification](#result-verification)
+- [Reputation System](#reputation-system)
+- [Intent Catalog](#intent-catalog)
+- [License](#license)
+
 ## Why NERVE Exists
 
 AI agents with real funds are unsafe today because every guardrail is application-layer code the LLM can jailbreak. Spending limits, capability checks, and access controls exist in software, not in the infrastructure. If the model hallucinates a valid-looking transaction that drains a wallet, nothing at the infrastructure level stops it. Capability claims are assertions, not proofs. Multi-agent payments require trusted intermediaries, reintroducing the trust problem at the payment layer.
@@ -639,4 +662,4 @@ All transactions are built by `nerve-core` via the `POST /tx/build-and-broadcast
 
 ## License
 
-MIT
+[![License: MIT](https://img.shields.io/github/license/RobaireTH/NERVE)](LICENSE)
