@@ -307,7 +307,7 @@ pub async fn build_spawn_sub_agent(
 	let parent_lock = Script {
 		code_hash: SECP256K1_CODE_HASH.into(),
 		hash_type: SECP256K1_HASH_TYPE.into(),
-		args: state.lock_args.clone(),
+		args: format!("0x{}", hex::encode(parent_lock_args)),
 	};
 
 	let child_lock = Script {
@@ -410,10 +410,7 @@ pub async fn build_spawn_sub_agent(
 	}));
 	outputs_data.push("0x".to_string());
 
-	let mut cell_deps = vec![
-		json!({ "out_point": { "tx_hash": SECP256K1_DEP_TX_HASH, "index": "0x0" }, "dep_type": "dep_group" }),
-		json!({ "out_point": { "tx_hash": dep_tx_hash, "index": "0x0" }, "dep_type": "code" }),
-	];
+	let mut cell_deps = Vec::new();
 
 	if *parent_lock_args != [0u8; 20] {
 		let parent_args_hex = format!("0x{}", hex::encode(parent_lock_args));
@@ -426,6 +423,9 @@ pub async fn build_spawn_sub_agent(
 			)));
 		}
 	}
+
+	cell_deps.push(json!({ "out_point": { "tx_hash": SECP256K1_DEP_TX_HASH, "index": "0x0" }, "dep_type": "dep_group" }));
+	cell_deps.push(json!({ "out_point": { "tx_hash": dep_tx_hash, "index": "0x0" }, "dep_type": "code" }));
 
 	let mut tx = json!({
 		"version": "0x0",
