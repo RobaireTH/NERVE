@@ -4,7 +4,7 @@
 // used by routes/fiber.ts for backward compatibility. Gains: proper error types
 // (FiberRpcError), typed params/results, wait helpers.
 
-import { FiberRpcClient, FiberRpcError, ckbToShannons as sdkCkbToShannons } from '@fiber-pay/sdk';
+import { FiberRpcClient, FiberRpcError, ckbToShannons as sdkCkbToShannons, buildMultiaddrFromNodeId } from '@fiber-pay/sdk';
 
 const FIBER_RPC_URL = process.env.FIBER_RPC_URL ?? 'http://localhost:8227';
 
@@ -14,6 +14,10 @@ export const CKB_TO_SHANNONS = 100_000_000n;
 
 export function ckbToShannons(ckb: number): string {
 	return sdkCkbToShannons(ckb);
+}
+
+export function toHexUint(value: bigint | number | string): string {
+	return `0x${BigInt(value).toString(16)}`;
 }
 
 export function shannonsToNumber(shannons: bigint | number | string): number {
@@ -75,7 +79,12 @@ export async function nodeInfo(): Promise<FiberNodeInfo> {
 }
 
 export async function connectPeer(peerAddress: string, save = true): Promise<void> {
-	await client.call('connect_peer', [{ address: peerAddress, save }]);
+	let address = peerAddress;
+	if (/\/p2p\/0[0-9a-f]{65}$/i.test(peerAddress)) {
+		const [base, nodeId] = peerAddress.split('/p2p/');
+		address = await buildMultiaddrFromNodeId(base, nodeId);
+	}
+	await client.call('connect_peer', [{ address, save }]);
 }
 
 export async function openChannel(
@@ -90,10 +99,10 @@ export async function openChannel(
 		public: isPublic,
 		funding_udt_type_script: null,
 		shutdown_script: null,
-		tlc_expiry_delta: 14_400_000,
-		tlc_min_value: 0,
-		tlc_fee_proportional_millionths: 1000,
-		max_tlc_number_in_flight: 125,
+		tlc_expiry_delta: toHexUint(14_400_000),
+		tlc_min_value: toHexUint(0),
+		tlc_fee_proportional_millionths: toHexUint(1000),
+		max_tlc_number_in_flight: toHexUint(125),
 	}]);
 }
 
@@ -181,9 +190,9 @@ export async function sendPayment(opts: {
 	description?: string;
 }): Promise<FiberPaymentResult> {
 	const params: Record<string, unknown> = {
-		timeout: 300,
-		max_fee_amount: ckbToShannons(0.01),
-		max_parts: 1,
+		timeout: toHexUint(300),
+		max_fee_amount: toHexUint(ckbToShannons(0.01)),
+		max_parts: toHexUint(1),
 		keysend: !opts.invoice,
 		dry_run: false,
 		hop_hints: [],
@@ -196,7 +205,7 @@ export async function sendPayment(opts: {
 			throw new Error('Either invoice or (targetPubkey + amountCkb) is required');
 		}
 		params.target_pubkey = opts.targetPubkey;
-		params.amount = ckbToShannons(opts.amountCkb);
+		params.amount = toHexUint(ckbToShannons(opts.amountCkb));
 	}
 
 	return client.call('send_payment', [params]);
