@@ -22,9 +22,13 @@ ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 DATA_DIR="$ROOT_DIR/fiber-data"
 RPC_PORT="${FIBER_RPC_PORT:-8227}"
 P2P_PORT="${FIBER_P2P_PORT:-8228}"
-CKB_RPC="${FIBER_CKB_RPC:-https://testnet.ckbapp.dev/}"
+CKB_RPC="${FIBER_CKB_RPC:-https://testnet.ckb.dev/rpc}"
 FNN_BIN="${FNN_BIN:-fnn}"
 KEY_PASSWORD="${FIBER_SECRET_KEY_PASSWORD:-nerve-dev}"
+ANNOUNCE_LISTENING_ADDR="${FIBER_ANNOUNCE_LISTENING_ADDR:-false}"
+ANNOUNCE_PRIVATE_ADDR="${FIBER_ANNOUNCE_PRIVATE_ADDR:-true}"
+PUBLIC_IP="${FIBER_PUBLIC_IP:-}"
+ANNOUNCED_NODE_NAME="${FIBER_NODE_NAME:-nerve-node}"
 
 RESET="${1:-}"
 
@@ -49,6 +53,14 @@ mkdir -p "$DATA_DIR/ckb" "$DATA_DIR/fiber"
 # Write config
 
 step "Writing Fiber node config"
+PUBLIC_ADDR_BLOCK=""
+if [[ -n "$PUBLIC_IP" ]]; then
+	PUBLIC_ADDR_BLOCK=$(cat <<EOF
+  announced_addrs:
+    - "/ip4/${PUBLIC_IP}/tcp/${P2P_PORT}"
+EOF
+)
+fi
 cat > "$DATA_DIR/config.yml" <<YAML
 ## Fiber Network node config for NERVE development (testnet).
 
@@ -57,9 +69,10 @@ fiber:
   bootnode_addrs:
     - "/ip4/54.179.226.154/tcp/8228/p2p/Qmes1EBD4yNo9Ywkfe6eRw9tG1nVNGLDmMud1xJMsoYFKy"
     - "/ip4/16.163.7.105/tcp/8228/p2p/QmdyQWjPtbK4NWWsvy8s69NGJaQULwgeQDT5ZpNDrTNaeV"
-  announce_listening_addr: false
-  announced_node_name: "nerve-node"
-  announce_private_addr: true
+  announce_listening_addr: ${ANNOUNCE_LISTENING_ADDR}
+  announced_node_name: "${ANNOUNCED_NODE_NAME}"
+  announce_private_addr: ${ANNOUNCE_PRIVATE_ADDR}
+${PUBLIC_ADDR_BLOCK}
   chain: testnet
   scripts:
     - name: FundingLock
@@ -177,6 +190,9 @@ if [[ -n "$NODE_ID" ]]; then
 FIBER_RPC_URL=http://127.0.0.1:${RPC_PORT}
 FIBER_P2P_PORT=${P2P_PORT}
 FIBER_NODE_ID=${NODE_ID}
+FIBER_PUBLIC_IP=${PUBLIC_IP}
+FIBER_ANNOUNCE_LISTENING_ADDR=${ANNOUNCE_LISTENING_ADDR}
+FIBER_ANNOUNCE_PRIVATE_ADDR=${ANNOUNCE_PRIVATE_ADDR}
 ENV
 	ok "Written to .env.fiber. Source it to export Fiber env vars."
 else

@@ -150,7 +150,7 @@ That's it. Clone, configure with your key, fund from the faucet, run `nerve join
 
 | Feature | Status |
 |---------|--------|
-| Fiber payments | Direct Fiber payments and pay-agent work for local/demo use. Automatic marketplace settlement via Fiber is still pending. |
+| Fiber payments | Direct Fiber payments, pay-agent, and explicit hold-invoice escrow setup/settlement routes work for local/demo use. Fully automatic escrow setup during reserve/claim is still pending. |
 | SupeRISE signing backend | `SuperiseSigner` is implemented in `signer.rs`. End-to-end TX signing via SupeRISE is not validated. Use local signer. |
 | Automated dispute resolution | Disputes are economic only. No on-chain arbitration or slashing in v1. |
 | ZK capability proofs | Attestations are secp256k1-signed, not zero-knowledge. ZKP deferred pending `no_std` ZK library availability on CKB-VM. |
@@ -401,6 +401,10 @@ Fiber is now working for local/demo use:
 - direct invoice payments work
 - `pay-agent` works when the agent has a registered Fiber mapping
 - worker-side local setup can be started with `./scripts/setup_fiber_worker.sh`
+- public announcement can be enabled in the setup scripts with:
+  - `FIBER_PUBLIC_IP` / `FIBER_WORKER_PUBLIC_IP`
+  - `FIBER_ANNOUNCE_LISTENING_ADDR=true`
+  - `FIBER_ANNOUNCE_PRIVATE_ADDR=false`
 
 Current MCP helper endpoints:
 - `GET /fiber/ready`
@@ -408,7 +412,7 @@ Current MCP helper endpoints:
 - `POST /fiber/agents` to register `lock_args -> node_id` and optional `rpc_url`
 - `POST /fiber/pay-agent`
 
-What is still pending: automatic Fiber settlement as part of the marketplace job lifecycle.
+What is still pending: automatically opening/funding the hold escrow during reserve/claim without an explicit setup call. The supported flow today is explicit: post a job with hold metadata, call `/jobs/:tx_hash/:index/escrow` once the worker is known, then call `/jobs/:tx_hash/:index/complete` with `fiber_preimage` to settle.
 
 ## Demo Modes
 

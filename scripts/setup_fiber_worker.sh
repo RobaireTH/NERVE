@@ -19,6 +19,10 @@ CKB_RPC="${FIBER_CKB_RPC:-https://testnet.ckb.dev/rpc}"
 FNN_BIN="${FNN_BIN:-fnn}"
 KEY_PASSWORD="${FIBER_SECRET_KEY_PASSWORD:-nerve-dev}"
 WORKER_KEY="${DEMO_WORKER_KEY:-${AGENT_PRIVATE_KEY:-}}"
+ANNOUNCE_LISTENING_ADDR="${FIBER_WORKER_ANNOUNCE_LISTENING_ADDR:-false}"
+ANNOUNCE_PRIVATE_ADDR="${FIBER_WORKER_ANNOUNCE_PRIVATE_ADDR:-true}"
+PUBLIC_IP="${FIBER_WORKER_PUBLIC_IP:-}"
+ANNOUNCED_NODE_NAME="${FIBER_WORKER_NODE_NAME:-nerve-worker}"
 
 step() { echo; echo "-- $* --"; }
 ok() { echo "   OK: $*"; }
@@ -30,15 +34,24 @@ command -v "$FNN_BIN" >/dev/null 2>&1 || fail "fnn binary not found"
 mkdir -p "$DATA_DIR/ckb" "$DATA_DIR/fiber"
 
 step "Writing worker Fiber config"
+PUBLIC_ADDR_BLOCK=""
+if [[ -n "$PUBLIC_IP" ]]; then
+  PUBLIC_ADDR_BLOCK=$(cat <<EOF
+  announced_addrs:
+    - "/ip4/${PUBLIC_IP}/tcp/${P2P_PORT}"
+EOF
+)
+fi
 cat > "$DATA_DIR/config.yml" <<YAML
 fiber:
   listening_addr: "/ip4/0.0.0.0/tcp/${P2P_PORT}"
   bootnode_addrs:
     - "/ip4/54.179.226.154/tcp/8228/p2p/Qmes1EBD4yNo9Ywkfe6eRw9tG1nVNGLDmMud1xJMsoYFKy"
     - "/ip4/16.163.7.105/tcp/8228/p2p/QmdyQWjPtbK4NWWsvy8s69NGJaQULwgeQDT5ZpNDrTNaeV"
-  announce_listening_addr: false
-  announced_node_name: "nerve-worker"
-  announce_private_addr: true
+  announce_listening_addr: ${ANNOUNCE_LISTENING_ADDR}
+  announced_node_name: "${ANNOUNCED_NODE_NAME}"
+  announce_private_addr: ${ANNOUNCE_PRIVATE_ADDR}
+${PUBLIC_ADDR_BLOCK}
   chain: testnet
   scripts:
     - name: FundingLock
@@ -105,6 +118,9 @@ cat > "$ROOT_DIR/.env.fiber-worker" <<ENV
 FIBER_WORKER_RPC_URL=http://127.0.0.1:${RPC_PORT}
 FIBER_WORKER_P2P_PORT=${P2P_PORT}
 FIBER_WORKER_NODE_ID=${NODE_ID}
+FIBER_WORKER_PUBLIC_IP=${PUBLIC_IP}
+FIBER_WORKER_ANNOUNCE_LISTENING_ADDR=${ANNOUNCE_LISTENING_ADDR}
+FIBER_WORKER_ANNOUNCE_PRIVATE_ADDR=${ANNOUNCE_PRIVATE_ADDR}
 ENV
 
 ok "Worker Fiber RPC: http://127.0.0.1:${RPC_PORT}"
