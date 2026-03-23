@@ -117,7 +117,7 @@
 		<div class="callout-title">Why NERVE Exists</div>
 		<p>AI agents with real funds are unsafe today because every guardrail is application-layer code the LLM can jailbreak. Spending limits, capability checks, and access controls exist in software, not in the infrastructure.</p>
 		<p>NERVE makes every safety property a CKB consensus rule. The type script rejects invalid transactions at the node level. An agent cannot exceed its spending cap, destroy its identity cell, or forge a capability.</p>
-		<p>Capability proofs use signed attestations verified via secp256k1 recovery. ZK proofs (halo2 compiled to RISC-V) were evaluated but deferred because CKB-VM requires <code>no_std</code> and existing ZK libraries depend on <code>std</code>. The attestation model is cryptographically sound and testnet-ready; ZKP is the planned production upgrade. Blake2b proof chains provide verifiable reputation without ZK overhead.</p>
+		<p>Capability proofs use signed attestations verified via secp256k1 recovery, plus optional reputation-chain-backed evidence. This gives NERVE a practical capability model that is verifiable on CKB testnet today. Blake2b proof chains provide replayable reputation history from public on-chain data.</p>
 	</div>
 
 

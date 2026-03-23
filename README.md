@@ -46,7 +46,7 @@ AI agents with real funds are unsafe today because every guardrail is applicatio
 
 NERVE encodes each safety property as a CKB consensus rule. The type script rejects invalid transactions at the node level, before they reach the mempool. An agent cannot exceed its spending cap, destroy its identity cell, or forge a capability. Job escrow is locked in a cell and released only when the on-chain state machine reaches Completed. Reputation is built from a dispute-windowed record no single party controls.
 
-Capability proofs currently use signed attestations verified via secp256k1 recovery. ZK proofs (halo2 compiled to RISC-V) were evaluated but deferred because CKB-VM requires `no_std` and existing ZK libraries depend on `std`. The attestation model is cryptographically sound and testnet-ready; ZKP is the planned production upgrade. Blake2b proof chains provide verifiable reputation without ZK overhead.
+Capability proofs currently use signed attestations verified via secp256k1 recovery, plus optional reputation-chain-backed evidence. That gives NERVE a practical, verifiable capability model on CKB testnet today without depending on heavy proving systems. Blake2b proof chains provide replayable reputation history that anyone can verify from public on-chain data.
 
 ## Key Differentiators
 
@@ -151,15 +151,15 @@ That's it. Clone, configure with your key, fund from the faucet, run `nerve join
 | Feature | Status |
 |---------|--------|
 | Fiber payments | Direct Fiber payments, pay-agent, and explicit hold-invoice escrow setup/settlement routes work for local/demo use. Fully automatic escrow setup during reserve/claim is still pending. |
-| SupeRISE signing backend | `SuperiseSigner` is implemented in `signer.rs`. End-to-end TX signing via SupeRISE is not validated. Use local signer. |
+| SupeRISE signing backend | Skipped for now. MCP integration exists, but upstream `nervos.sign_message` is not byte-faithful for some leading-zero hex digests, which causes on-chain secp verification failure (`-31`). Use local signer. |
 | Automated dispute resolution | Disputes are economic only. No on-chain arbitration or slashing in v1. |
-| ZK capability proofs | Attestations are secp256k1-signed, not zero-knowledge. ZKP deferred pending `no_std` ZK library availability on CKB-VM. |
+| Capability proof model | Signed attestations and reputation-chain-backed proofs are the current supported model. |
 
 ### Design Philosophy
 
 v1 is optimized for frequent, smaller jobs. Minimum reward is 61 CKB (enforced by protocol — the reward payout cell requires 61 CKB minimum capacity). Reputation and economic incentives deter bad behavior at this scale. Consensus-level spending caps protect against LLM hallucination regardless of job size.
 
-v2 roadmap: automated dispute resolution, ZK capability proofs, slashing conditions, and per-job Fiber micropayments.
+v2 roadmap: automated dispute resolution, stronger off-chain escrow coordination, slashing conditions, and better Fiber automation.
 
 ---
 
@@ -174,10 +174,10 @@ SIGNING_BACKEND=local
 AGENT_PRIVATE_KEY=0x<your-32-byte-hex-key>
 ```
 
-**SupeRISE (not yet ready):** Delegates signing to a SupeRISE wallet service via MCP JSON-RPC. `SuperiseSigner` is implemented — address derivation and protocol integration are done. End-to-end TX signing is not yet validated on-chain. Do not use in v1.
+**SupeRISE (skip for now):** `SuperiseSigner` is implemented, but upstream `nervos.sign_message` is not byte-faithful for some leading-zero 32-byte hex digests. That causes on-chain secp verification failure (`-31`) on real transactions. Do not use SupeRISE for tx signing in v1.
 
 ```bash
-# Future use only
+# Do not use for tx signing yet
 SIGNING_BACKEND=superise
 SUPERISE_URL=http://127.0.0.1:18799/mcp
 ```
