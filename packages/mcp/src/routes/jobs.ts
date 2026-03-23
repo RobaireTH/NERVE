@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { getCellsByScript, getLiveCell, getTipBlockNumber, Script, LiveCell } from '../ckb.js';
+import { payAgentByLockArgs } from './fiber.js';
 
 const router = Router();
 
@@ -17,6 +18,7 @@ interface JobPaymentMetadata {
 	lock_args?: string;
 	node_id?: string;
 	rpc_url?: string;
+	amount_ckb?: number;
 	description?: string;
 }
 
@@ -274,6 +276,10 @@ router.post('/', async (req, res) => {
 			res.status(400).json({ error: 'payment.mode must be fiber' });
 			return;
 		}
+		if (payment.amount_ckb !== undefined && (typeof payment.amount_ckb !== 'number' || payment.amount_ckb <= 0)) {
+			res.status(400).json({ error: 'payment.amount_ckb must be a positive number when provided' });
+			return;
+		}
 	}
 
 	try {
@@ -290,6 +296,93 @@ router.post('/', async (req, res) => {
 		const data = await response.json();
 		res.status(response.status).json(data);
 	} catch (e) {
+		res.status(502).json({ error: 'failed to reach nerve-core' });
+	}
+});
+
+// POST /jobs/:tx_hash/:index/complete: complete a claimed job and auto-trigger Fiber payment when metadata exists.
+// Body: { worker_lock_args?, result? }
+router.post('/:tx_hash/:index/complete', async (req, res) => {
+	const { tx_hash, index } = req.params;
+	const indexNum = parseInt(index, 10);
+	if (isNaN(indexNum)) {
+		res.status(400).json({ error: 'index must be a number' });
+		return;
+	}
+
+	const { worker_lock_args, result } = req.body as {
+		worker_lock_args?: string;
+		result?: string;
+	};
+	if (worker_lock_args !== undefined && !/^0x[0-9a-fA-F]{40}$/.test(worker_lock_args)) {
+		res.status(400).json({ error: 'worker_lock_args must be a 0x-prefixed 20-byte hex string' });
+		return;
+	}
+	if (result !== undefined && typeof result !== 'string') {
+		res.status(400).json({ error: 'result must be a string' });
+		return;
+	}
+
+	try {
+		const cell = await getLiveCell({ tx_hash, index: `0x${indexNum.toString(16)}` });
+		if (!cell) {
+			res.status(404).json({ error: 'cell not found' });
+			return;
+		}
+		const job = parseJobCell(cell);
+		if (!job) {
+			res.status(422).json({ error: 'cell is not a valid job cell' });
+			return;
+		}
+
+		const effectiveWorkerLockArgs = worker_lock_args ?? job.worker_lock_args;
+		if (!effectiveWorkerLockArgs) {
+			res.status(400).json({ error: 'worker_lock_args is required (job has no worker assigned)' });
+			return;
+		}
+
+		const payload: Record<string, unknown> = {
+			intent: 'complete_job',
+			job_tx_hash: tx_hash,
+			job_index: indexNum,
+			worker_lock_args: effectiveWorkerLockArgs,
+		};
+		if (result !== undefined) payload.result = result;
+
+		const response = await fetch(`${CORE_URL}/tx/build-and-broadcast`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify(payload),
+		});
+		const data = await response.json() as Record<string, unknown>;
+		if (!response.ok) {
+			res.status(response.status).json(data);
+			return;
+		}
+
+		if (job.payment?.mode !== 'fiber') {
+			res.json({ ...data, fiber_payment_requested: false, fiber_payment: null });
+			return;
+		}
+
+		const paymentLockArgs = job.payment.lock_args ?? effectiveWorkerLockArgs;
+		const paymentAmountCkb = job.payment.amount_ckb ?? job.reward_ckb;
+		const paymentDescription = job.payment.description ?? `payment for completed job ${tx_hash}:${indexNum}`;
+
+		try {
+			const fiberPayment = await payAgentByLockArgs(paymentLockArgs, paymentAmountCkb, paymentDescription);
+			res.json({ ...data, fiber_payment_requested: true, fiber_payment: fiberPayment });
+		} catch (e) {
+			const message = e instanceof Error ? e.message : 'fiber payment failed';
+			res.json({
+				...data,
+				fiber_payment_requested: true,
+				fiber_payment: null,
+				fiber_payment_error: message,
+			});
+		}
+	} catch (e) {
+		console.error('jobs route error:', e);
 		res.status(502).json({ error: 'failed to reach nerve-core' });
 	}
 });

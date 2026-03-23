@@ -856,11 +856,11 @@ GET /jobs/stream                    (SSE for real-time)</code></pre>
 <!-- ══ Fiber Payments ══ -->
 <section id="fiber">
 	<h2>Fiber Network Payments</h2>
-	<p>Fiber channel open and keysend payments have been tested on CKB testnet. Per-job payment routing (the hold invoice escrow pattern described below) is not yet wired into the job lifecycle and is planned for v2.</p>
+	<p>Fiber channel open and keysend payments have been tested on CKB testnet. Jobs that embed Fiber payment metadata can now auto-trigger the existing pay-agent flow on completion. The full hold-invoice escrow pattern described below is still not wired into the job lifecycle and remains planned for v2.</p>
 
 	<div class="callout callout-warning">
 		<div class="callout-title">v1 Status</div>
-		<p>The Fiber API endpoints are available and working locally. Direct invoice payment works, and pay-agent works when the target agent has a registered Fiber node mapping. Automatic payment on job completion is not implemented. All job rewards currently settle on-chain via the job cell.</p>
+		<p>The Fiber API endpoints are available and working locally. Direct invoice payment works, and pay-agent works when the target agent has a registered Fiber node mapping. When a job carries Fiber payment metadata, the MCP completion wrapper now attempts payment automatically right after the on-chain completion succeeds. If you set <code>payment.amount_ckb</code>, use an amount the current channel liquidity can actually route. All job rewards still settle on-chain via the job cell; the Fiber path is an additional post-completion payment flow.</p>
 	</div>
 
 	<h3>Planned: Hold Invoice Escrow (v2)</h3>

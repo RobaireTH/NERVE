@@ -58,11 +58,11 @@ Base URL: `http://localhost:8080`
   "job_tx_hash": "0x<32-byte-hex>",
   "job_index": 0,
   "worker_lock_args": "0x<20-byte-hex>",
-  "result_hash": "0x<32-byte-hex or omit>"
+  "result": "<utf-8 result text or omit>"
 }
 ```
 
-When `result_hash` is provided, a 33-byte result memo cell is created under the worker's lock as on-chain proof of work (version byte + blake2b hash of the task result). The memo cell costs 97 CKB, deducted from the poster's refund.
+When `result` is provided for a described job, the builder computes the result proof and creates the 33-byte result memo cell under the worker's lock as on-chain proof of work (version byte + blake2b hash of the task result). The memo cell costs 97 CKB, deducted from the poster's refund. When Fiber payment metadata is embedded in the job, prefer the MCP completion wrapper (`POST /jobs/:tx_hash/:index/complete`) so completion also auto-triggers the existing Fiber pay-agent flow.
 
 **cancel_job**
 ```json
@@ -148,7 +148,9 @@ The TX Builder returns structured errors. Common cases:
 
 ## Payment After Job Completion
 
-After a job reaches the `Completed` state, the poster can pay the worker directly using the worker's `lock_args` from the job cell. This uses the MCP bridge's pay-agent endpoint which resolves the pubkey automatically.
+If a job embeds Fiber payment metadata, `POST /jobs/:tx_hash/:index/complete` now attempts the Fiber payment automatically right after the on-chain completion succeeds. The response includes both the completion tx data and `fiber_payment` details (or `fiber_payment_error` if the auto-payment attempt failed after completion). If you set `payment.amount_ckb`, use a routable amount for the currently available Fiber liquidity; otherwise the auto-payment can still fail even when the hook is working correctly.
+
+Manual fallback remains available: after a job reaches the `Completed` state, the poster can still pay the worker directly using the worker's `lock_args` from the job cell. This uses the MCP bridge's pay-agent endpoint which resolves the pubkey automatically.
 
 ```bash
 curl -s -X POST http://localhost:8081/fiber/pay-agent \

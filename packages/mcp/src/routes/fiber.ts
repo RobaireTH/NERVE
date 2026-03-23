@@ -14,6 +14,8 @@ import {
 	sendPayment,
 	shannonsToNumber,
 	isNodeReady,
+	ensureDirectPeerFromRpcUrl,
+	waitForChannelReadyByPeer,
 } from '../fiber.js';
 import { getCellsByScript, Script } from '../ckb.js';
 import { parseAgentCell } from './agents.js';
@@ -23,7 +25,7 @@ const router = Router();
 const AGENT_TYPE_CODE_HASH = process.env.AGENT_IDENTITY_TYPE_CODE_HASH ?? '';
 const FIBER_AGENT_MAP_PATH = process.env.FIBER_AGENT_MAP_PATH ?? path.resolve(process.cwd(), '.fiber-agents.json');
 
-interface FiberAgentEntry {
+export interface FiberAgentEntry {
 	lock_args: string;
 	node_id: string;
 	rpc_url?: string;
@@ -31,7 +33,19 @@ interface FiberAgentEntry {
 	updated_at: string;
 }
 
-function readFiberAgentMap(): Record<string, FiberAgentEntry> {
+export interface FiberAgentPaymentResult {
+	payment_hash: string;
+	status: string;
+	fee_shannons: number;
+	target_pubkey: string;
+	agent_pubkey: string | null;
+	fiber_node_id: string | null;
+	fiber_rpc_url: string | null;
+	used_mapping: boolean;
+	used_invoice: boolean;
+}
+
+export function readFiberAgentMap(): Record<string, FiberAgentEntry> {
 	try {
 		if (!fs.existsSync(FIBER_AGENT_MAP_PATH)) return {};
 		return JSON.parse(fs.readFileSync(FIBER_AGENT_MAP_PATH, 'utf8')) as Record<string, FiberAgentEntry>;
@@ -44,29 +58,49 @@ function writeFiberAgentMap(map: Record<string, FiberAgentEntry>): void {
 	fs.writeFileSync(FIBER_AGENT_MAP_PATH, JSON.stringify(map, null, 2) + '\n');
 }
 
-async function createRemoteInvoice(rpcUrl: string, amountCkb: number, description: string): Promise<string> {
-	const amount = `0x${BigInt(Math.round(amountCkb * 100_000_000)).toString(16)}`;
+export async function remoteRpcCall<T>(rpcUrl: string, method: string, params: unknown[]): Promise<T> {
 	const resp = await fetch(rpcUrl, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({
-			jsonrpc: '2.0',
-			id: 1,
-			method: 'new_invoice',
-			params: [{
-				amount,
-				description,
-				currency: process.env.FIBER_CURRENCY ?? 'Fibt',
-				expiry: '0xe10',
-				final_expiry_delta: '0x5265c00',
-			}],
-		}),
+		body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
 	});
-	const json = await resp.json() as { result?: { invoice_address?: string }, error?: { message?: string } };
-	if (json.error || !json.result?.invoice_address) {
-		throw new Error(json.error?.message ?? 'remote invoice creation failed');
+	const json = await resp.json() as { result?: T, error?: { message?: string } };
+	if (json.error || json.result === undefined) {
+		throw new Error(json.error?.message ?? `${method} failed`);
 	}
-	return json.result.invoice_address;
+	return json.result;
+}
+
+async function createRemoteInvoice(rpcUrl: string, amountCkb: number, description: string): Promise<string> {
+	const amount = `0x${BigInt(Math.round(amountCkb * 100_000_000)).toString(16)}`;
+	const result = await remoteRpcCall<{ invoice_address?: string }>(rpcUrl, 'new_invoice', [{
+		amount,
+		description,
+		currency: process.env.FIBER_CURRENCY ?? 'Fibt',
+		expiry: '0xe10',
+		final_expiry_delta: '0x5265c00',
+	}]);
+	if (!result.invoice_address) {
+		throw new Error('remote invoice creation failed');
+	}
+	return result.invoice_address;
+}
+
+async function acceptRemoteChannel(rpcUrl: string, temporaryChannelId: string, fundingCkb: number): Promise<string> {
+	const fundingAmount = `0x${BigInt(Math.round(fundingCkb * 100_000_000)).toString(16)}`;
+	const result = await remoteRpcCall<{ channel_id?: string }>(rpcUrl, 'accept_channel', [{
+		temporary_channel_id: temporaryChannelId,
+		funding_amount: fundingAmount,
+		shutdown_script: null,
+		max_tlc_number_in_flight: '0x7d',
+		tlc_min_value: '0x0',
+		tlc_fee_proportional_millionths: '0x3e8',
+		tlc_expiry_delta: '0xdbba00',
+	}]);
+	if (!result.channel_id) {
+		throw new Error('remote channel accept failed');
+	}
+	return result.channel_id;
 }
 
 // GET /fiber/node: Fiber node info (node_id, addresses, channel count).
@@ -325,6 +359,90 @@ router.post('/agents', async (req, res) => {
 	res.status(201).json(entry);
 });
 
+export async function payAgentByLockArgs(lockArgs: string, amountCkb: number, description?: string): Promise<FiberAgentPaymentResult> {
+	if (!AGENT_TYPE_CODE_HASH) {
+		throw new Error('AGENT_IDENTITY_TYPE_CODE_HASH not configured');
+	}
+
+	const normalizedLockArgs = lockArgs.toLowerCase();
+	const map = readFiberAgentMap();
+	const mapped = map[normalizedLockArgs];
+
+	let targetPubkey = mapped?.node_id;
+	let agentPubkey: string | undefined;
+
+	if (!targetPubkey) {
+		const script: Script = {
+			code_hash: AGENT_TYPE_CODE_HASH,
+			hash_type: 'data1',
+			args: '0x',
+		};
+		const result = await getCellsByScript(script, 'type', 200);
+		const match = result.objects.find(
+			(c) => c.output.lock.args.toLowerCase() === normalizedLockArgs,
+		);
+		if (!match) {
+			throw new Error('no agent identity cell found for this lock_args');
+		}
+		const agent = parseAgentCell(match.output_data, lockArgs);
+		if (!agent) {
+			throw new Error('cell is not a valid agent identity cell');
+		}
+		agentPubkey = agent.pubkey;
+		targetPubkey = agent.pubkey;
+	}
+
+	const payOnce = async () => mapped?.rpc_url
+		? sendPayment({ invoice: await createRemoteInvoice(mapped.rpc_url, amountCkb, description ?? '') })
+		: sendPayment({ targetPubkey, amountCkb, description });
+
+	let payment;
+	try {
+		payment = await payOnce();
+	} catch (e) {
+		const message = e instanceof Error ? e.message : String(e);
+		if (!mapped?.rpc_url || !mapped?.node_id || !/no path found|Insufficient balance/i.test(message)) {
+			throw e;
+		}
+		const peerId = await ensureDirectPeerFromRpcUrl(mapped.rpc_url, mapped.node_id);
+		try {
+			const opened = await openChannel(peerId, 100, true);
+			await acceptRemoteChannel(mapped.rpc_url, opened.temporary_channel_id, 100);
+		} catch {
+			// ignore if a usable channel already exists or another open is already in progress
+		}
+		await waitForChannelReadyByPeer(peerId, amountCkb, 180000);
+		let lastError: unknown = e;
+		for (let i = 0; i < 8; i++) {
+			try {
+				payment = await payOnce();
+				lastError = null;
+				break;
+			} catch (retryError) {
+				lastError = retryError;
+				await new Promise((resolve) => setTimeout(resolve, 4000));
+			}
+		}
+		if (!payment && lastError) throw lastError;
+	}
+
+	if (!payment) {
+		throw new Error('fiber payment failed after retries');
+	}
+
+	return {
+		payment_hash: payment.payment_hash,
+		status: payment.status,
+		fee_shannons: payment.fee,
+		target_pubkey: targetPubkey,
+		agent_pubkey: agentPubkey ?? null,
+		fiber_node_id: mapped?.node_id ?? null,
+		fiber_rpc_url: mapped?.rpc_url ?? null,
+		used_mapping: Boolean(mapped),
+		used_invoice: Boolean(mapped?.rpc_url),
+	};
+}
+
 // POST /fiber/pay-agent: Look up agent pubkey by lock_args and keysend payment.
 router.post('/pay-agent', async (req, res) => {
 	const { lock_args, amount_ckb, description } = req.body as {
@@ -337,59 +455,26 @@ router.post('/pay-agent', async (req, res) => {
 		res.status(400).json({ error: 'lock_args and amount_ckb are required' });
 		return;
 	}
-	if (!AGENT_TYPE_CODE_HASH) {
-		res.status(503).json({ error: 'AGENT_IDENTITY_TYPE_CODE_HASH not configured' });
-		return;
-	}
 
 	try {
-		const normalizedLockArgs = lock_args.toLowerCase();
-		const map = readFiberAgentMap();
-		const mapped = map[normalizedLockArgs];
-
-		let targetPubkey = mapped?.node_id;
-		let agentPubkey: string | undefined;
-
-		if (!targetPubkey) {
-			const script: Script = {
-				code_hash: AGENT_TYPE_CODE_HASH,
-				hash_type: 'data1',
-				args: '0x',
-			};
-			const result = await getCellsByScript(script, 'type', 200);
-			const match = result.objects.find(
-				(c) => c.output.lock.args.toLowerCase() === normalizedLockArgs,
-			);
-			if (!match) {
-				res.status(404).json({ error: 'no agent identity cell found for this lock_args' });
-				return;
-			}
-			const agent = parseAgentCell(match.output_data, lock_args);
-			if (!agent) {
-				res.status(422).json({ error: 'cell is not a valid agent identity cell' });
-				return;
-			}
-			agentPubkey = agent.pubkey;
-			targetPubkey = agent.pubkey;
-		}
-
-		const payment = mapped?.rpc_url
-			? await sendPayment({ invoice: await createRemoteInvoice(mapped.rpc_url, amount_ckb, description ?? '') })
-			: await sendPayment({ targetPubkey, amountCkb: amount_ckb, description });
-		res.json({
-			payment_hash: payment.payment_hash,
-			status: payment.status,
-			fee_shannons: payment.fee,
-			target_pubkey: targetPubkey,
-			agent_pubkey: agentPubkey ?? null,
-			fiber_node_id: mapped?.node_id ?? null,
-			fiber_rpc_url: mapped?.rpc_url ?? null,
-			used_mapping: Boolean(mapped),
-			used_invoice: Boolean(mapped?.rpc_url),
-		});
+		const payment = await payAgentByLockArgs(lock_args, amount_ckb, description);
+		res.json(payment);
 	} catch (e) {
 		console.error('fiber route error:', e);
-		res.status(502).json({ error: 'upstream request failed' });
+		const message = e instanceof Error ? e.message : 'upstream request failed';
+		if (message === 'AGENT_IDENTITY_TYPE_CODE_HASH not configured') {
+			res.status(503).json({ error: message });
+			return;
+		}
+		if (message === 'no agent identity cell found for this lock_args') {
+			res.status(404).json({ error: message });
+			return;
+		}
+		if (message === 'cell is not a valid agent identity cell') {
+			res.status(422).json({ error: message });
+			return;
+		}
+		res.status(502).json({ error: 'upstream request failed', details: message });
 	}
 });
 

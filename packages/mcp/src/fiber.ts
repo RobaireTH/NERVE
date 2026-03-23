@@ -4,7 +4,7 @@
 // used by routes/fiber.ts for backward compatibility. Gains: proper error types
 // (FiberRpcError), typed params/results, wait helpers.
 
-import { FiberRpcClient, FiberRpcError, ckbToShannons as sdkCkbToShannons, buildMultiaddrFromNodeId } from '@fiber-pay/sdk';
+import { FiberRpcClient, FiberRpcError, ckbToShannons as sdkCkbToShannons, buildMultiaddrFromNodeId, buildMultiaddrFromRpcUrl, nodeIdToPeerId } from '@fiber-pay/sdk';
 
 const FIBER_RPC_URL = process.env.FIBER_RPC_URL ?? 'http://localhost:8227';
 
@@ -85,6 +85,31 @@ export async function connectPeer(peerAddress: string, save = true): Promise<voi
 		address = await buildMultiaddrFromNodeId(base, nodeId);
 	}
 	await client.call('connect_peer', [{ address, save }]);
+}
+
+export async function ensureDirectPeerFromRpcUrl(rpcUrl: string, nodeId: string): Promise<string> {
+	const peerId = await nodeIdToPeerId(nodeId);
+	const address = buildMultiaddrFromRpcUrl(rpcUrl, nodeId);
+	await connectPeer(address, true);
+	return peerId;
+}
+
+export async function waitForChannelReadyByPeer(peerId: string, minLocalCkb = 0, timeoutMs = 120000): Promise<boolean> {
+	const start = Date.now();
+	while (Date.now() - start < timeoutMs) {
+		const result = await listChannels(peerId);
+		if (result.channels.some((c: any) => {
+			const stateName = c.state?.state_name ?? c.state;
+			const local = typeof c.local_balance === 'string'
+				? Number(BigInt(c.local_balance)) / 1e8
+				: Number(c.local_balance ?? 0) / (Number(c.local_balance ?? 0) > 1e6 ? 1e8 : 1);
+			return (stateName === 'CHANNEL_READY' || stateName === 'ChannelReady') && local >= minLocalCkb;
+		})) {
+			return true;
+		}
+		await new Promise((resolve) => setTimeout(resolve, 4000));
+	}
+	return false;
 }
 
 export async function openChannel(
