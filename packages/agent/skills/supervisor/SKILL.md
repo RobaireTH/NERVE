@@ -129,7 +129,8 @@ For long-running flows, send a plain-text update to the user after each phase co
 | tx status `<tx_hash>` | chain-scanner | get_tx_status |
 | status / show my status | chain-scanner | get_full_status |
 | swap `X CKB` for `Y` | defi-worker | swap |
-| open channel / pay `<lock_args>` | payment-worker | open_channel |
+| open channel | payment-worker | open_channel |
+| pay `<lock_args>` / pay agent `<lock_args>` | payment-worker | pay |
 | pay for `<service>` / subscribe to `<service>` | service-payment | process_service_payment |
 | manage fiber node / start fiber / stop fiber | payment-worker | manage_node |
 | check fiber status / fiber balance | payment-worker | fiber_status |

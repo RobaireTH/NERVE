@@ -170,7 +170,7 @@ Trustless off-chain payment escrow for jobs using Fiber hold invoices:
 
 ## Pay Agent by Lock Args
 
-When you only know a worker's `lock_args` (not their Fiber pubkey), use the MCP bridge's pay-agent endpoint. It resolves the agent's pubkey from their on-chain identity cell and performs a keysend in one call.
+When you only know a worker's `lock_args` (not their Fiber pubkey), use the MCP bridge's pay-agent endpoint. It resolves the agent's pubkey from their on-chain identity cell and performs a keysend in one call. Helper script: `packages/agent/skills/payment-worker/scripts/pay_agent.sh`.
 
 ```bash
 curl -s -X POST http://localhost:8081/fiber/pay-agent \
@@ -207,7 +207,7 @@ Write to Memory on completion:
 ```json
 {
   "worker": "payment-worker",
-  "action": "<open_channel | pay | close_channel | start_node | stop_node | rebalance>",
+  "action": "<open_channel | pay | pay_agent | close_channel | start_node | stop_node | rebalance>",
   "status": "success | error",
   "channel_id": "<id or null>",
   "payment_hash": "<0x... or null>",
