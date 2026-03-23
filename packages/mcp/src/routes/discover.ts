@@ -51,8 +51,8 @@ router.get('/', (_req, res) => {
 				post_job: {
 					method: 'POST',
 					path: '/jobs',
-					description: 'Post a new job (proxied to nerve-core).',
-					body: '{ reward_ckb, ttl_blocks, capability_hash }',
+					description: 'Post a new job (proxied to nerve-core). Optional Fiber payment metadata may be embedded.',
+					body: '{ reward_ckb, ttl_blocks, capability_hash, description?, payment? }',
 				},
 				stream_jobs: {
 					method: 'GET',

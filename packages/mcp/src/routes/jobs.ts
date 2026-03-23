@@ -12,6 +12,14 @@ const ZERO_CAPABILITY_HASH = '0x' + '0'.repeat(64);
 const JOB_STATUS = ['Open', 'Reserved', 'Claimed', 'Completed', 'Expired'] as const;
 type JobStatus = (typeof JOB_STATUS)[number];
 
+interface JobPaymentMetadata {
+	mode: 'fiber';
+	lock_args?: string;
+	node_id?: string;
+	rpc_url?: string;
+	description?: string;
+}
+
 interface ParsedJob {
 	out_point: { tx_hash: string; index: string };
 	status: JobStatus;
@@ -22,7 +30,22 @@ interface ParsedJob {
 	capability_hash: string;
 	description_hash: string | null;
 	description: string | null;
+	payment?: JobPaymentMetadata | null;
 	capacity_shannons: string;
+}
+
+function splitPaymentMetadata(description: string | null): { description: string | null, payment: JobPaymentMetadata | null } {
+	if (!description) return { description, payment: null };
+	const marker = '\n\nNERVE_PAYMENT:';
+	const idx = description.indexOf(marker);
+	if (idx === -1) return { description, payment: null };
+	const base = description.slice(0, idx) || null;
+	const raw = description.slice(idx + marker.length).trim();
+	try {
+		return { description: base, payment: JSON.parse(raw) as JobPaymentMetadata };
+	} catch {
+		return { description, payment: null };
+	}
 }
 
 function parseJobCell(cell: LiveCell): ParsedJob | null {
@@ -48,9 +71,10 @@ function parseJobCell(cell: LiveCell): ParsedJob | null {
 	const descriptionHash = raw.length >= 122
 		? '0x' + raw.subarray(90, 122).toString('hex')
 		: null;
-	const description = raw.length > 122
+	const rawDescription = raw.length > 122
 		? raw.subarray(122).toString('utf-8')
 		: null;
+	const { description, payment } = splitPaymentMetadata(rawDescription);
 
 	return {
 		out_point: cell.out_point,
@@ -61,7 +85,8 @@ function parseJobCell(cell: LiveCell): ParsedJob | null {
 		ttl_block_height: ttlBlockHeight.toString(),
 		capability_hash: capabilityHash,
 		description_hash: descriptionHash,
-		description: description,
+		description,
+		payment,
 		capacity_shannons: BigInt(cell.output.capacity).toString(),
 	};
 }
@@ -218,13 +243,14 @@ router.get('/match/:lock_args', async (req, res) => {
 });
 
 // POST /jobs: post a new job (proxies to nerve-core TX builder).
-// Body: { reward_ckb: number, ttl_blocks: number, capability_hash: string, description?: string }
+// Body: { reward_ckb, ttl_blocks, capability_hash, description?, payment? }
 router.post('/', async (req, res) => {
-	const { reward_ckb, ttl_blocks, capability_hash, description } = req.body as {
+	const { reward_ckb, ttl_blocks, capability_hash, description, payment } = req.body as {
 		reward_ckb?: number;
 		ttl_blocks?: number;
 		capability_hash?: string;
 		description?: string;
+		payment?: JobPaymentMetadata;
 	};
 
 	if (reward_ckb === undefined || typeof reward_ckb !== 'number' || reward_ckb <= 0) {
@@ -243,10 +269,19 @@ router.post('/', async (req, res) => {
 		res.status(400).json({ error: 'description must be a string' });
 		return;
 	}
+	if (payment !== undefined) {
+		if (payment.mode !== 'fiber') {
+			res.status(400).json({ error: 'payment.mode must be fiber' });
+			return;
+		}
+	}
 
 	try {
 		const payload: Record<string, unknown> = { intent: 'post_job', reward_ckb, ttl_blocks, capability_hash };
-		if (description !== undefined) payload.description = description;
+		const fullDescription = payment
+			? `${description ?? ''}\n\nNERVE_PAYMENT:${JSON.stringify(payment)}`
+			: description;
+		if (fullDescription !== undefined) payload.description = fullDescription;
 		const response = await fetch(`${CORE_URL}/tx/build-and-broadcast`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
