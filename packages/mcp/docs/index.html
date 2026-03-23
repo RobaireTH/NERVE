@@ -109,7 +109,7 @@
 		<div class="card">
 			<div class="card-icon" style="background: var(--blue-dim); color: var(--blue);">&#x26a1;</div>
 			<h4>Fiber Payments</h4>
-			<p>Fiber node integration tested (channels, keysend). Per-job payment routing is planned for v2.</p>
+			<p>Fiber now works for local/demo use: direct invoice payments work, and pay-agent works with a registered Fiber mapping. Automatic marketplace settlement is still pending.</p>
 		</div>
 	</div>
 
@@ -773,6 +773,14 @@ GET /jobs/stream                    (SSE for real-time)</code></pre>
 			<td>Send payment. Body: <code>{ invoice }</code> or <code>{ target_pubkey, amount_ckb }</code>.</td>
 		</tr>
 		<tr>
+			<td><span class="method method-get">GET</span> <code>/fiber/agents/:lock_args</code></td>
+			<td>Read Fiber mapping for an agent lock_args.</td>
+		</tr>
+		<tr>
+			<td><span class="method method-post">POST</span> <code>/fiber/agents</code></td>
+			<td>Register Fiber mapping: <code>{ lock_args, node_id, rpc_url? }</code>.</td>
+		</tr>
+		<tr>
 			<td><span class="method method-post">POST</span> <code>/fiber/pay-agent</code></td>
 			<td>Look up agent pubkey by lock_args and keysend payment. Body: <code>{ lock_args, amount_ckb, description? }</code>.</td>
 		</tr>
@@ -852,7 +860,7 @@ GET /jobs/stream                    (SSE for real-time)</code></pre>
 
 	<div class="callout callout-warning">
 		<div class="callout-title">v1 Status</div>
-		<p>The Fiber API endpoints are available and the node integration works. Automatic payment on job completion is not implemented. All job rewards currently settle on-chain via the job cell.</p>
+		<p>The Fiber API endpoints are available and working locally. Direct invoice payment works, and pay-agent works when the target agent has a registered Fiber node mapping. Automatic payment on job completion is not implemented. All job rewards currently settle on-chain via the job cell.</p>
 	</div>
 
 	<h3>Planned: Hold Invoice Escrow (v2)</h3>

@@ -150,7 +150,7 @@ That's it. Clone, configure with your key, fund from the faucet, run `nerve join
 
 | Feature | Status |
 |---------|--------|
-| Fiber per-job payments | Fiber node runs and keysend works. Per-job payment routing is not wired into the job lifecycle. Planned for v2. |
+| Fiber payments | Direct Fiber payments and pay-agent work for local/demo use. Automatic marketplace settlement via Fiber is still pending. |
 | SupeRISE signing backend | `SuperiseSigner` is implemented in `signer.rs`. End-to-end TX signing via SupeRISE is not validated. Use local signer. |
 | Automated dispute resolution | Disputes are economic only. No on-chain arbitration or slashing in v1. |
 | ZK capability proofs | Attestations are secp256k1-signed, not zero-knowledge. ZKP deferred pending `no_std` ZK library availability on CKB-VM. |
@@ -393,6 +393,22 @@ After every completed or abandoned job: propose → wait dispute window → fina
 - **Job fields** (poster, reward, TTL, description) are immutable after creation.
 
 ---
+
+
+### Fiber status
+
+Fiber is now working for local/demo use:
+- direct invoice payments work
+- `pay-agent` works when the agent has a registered Fiber mapping
+- worker-side local setup can be started with `./scripts/setup_fiber_worker.sh`
+
+Current MCP helper endpoints:
+- `GET /fiber/ready`
+- `GET /fiber/agents/:lock_args`
+- `POST /fiber/agents` to register `lock_args -> node_id` and optional `rpc_url`
+- `POST /fiber/pay-agent`
+
+What is still pending: automatic Fiber settlement as part of the marketplace job lifecycle.
 
 ## Demo Modes
 
