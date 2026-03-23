@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import fs from 'fs';
+import path from 'path';
 import {
 	nodeInfo,
 	connectPeer,
@@ -19,6 +21,53 @@ import { parseAgentCell } from './agents.js';
 const router = Router();
 
 const AGENT_TYPE_CODE_HASH = process.env.AGENT_IDENTITY_TYPE_CODE_HASH ?? '';
+const FIBER_AGENT_MAP_PATH = process.env.FIBER_AGENT_MAP_PATH ?? path.resolve(process.cwd(), '.fiber-agents.json');
+
+interface FiberAgentEntry {
+	lock_args: string;
+	node_id: string;
+	rpc_url?: string;
+	notes?: string;
+	updated_at: string;
+}
+
+function readFiberAgentMap(): Record<string, FiberAgentEntry> {
+	try {
+		if (!fs.existsSync(FIBER_AGENT_MAP_PATH)) return {};
+		return JSON.parse(fs.readFileSync(FIBER_AGENT_MAP_PATH, 'utf8')) as Record<string, FiberAgentEntry>;
+	} catch {
+		return {};
+	}
+}
+
+function writeFiberAgentMap(map: Record<string, FiberAgentEntry>): void {
+	fs.writeFileSync(FIBER_AGENT_MAP_PATH, JSON.stringify(map, null, 2) + '\n');
+}
+
+async function createRemoteInvoice(rpcUrl: string, amountCkb: number, description: string): Promise<string> {
+	const amount = `0x${BigInt(Math.round(amountCkb * 100_000_000)).toString(16)}`;
+	const resp = await fetch(rpcUrl, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			jsonrpc: '2.0',
+			id: 1,
+			method: 'new_invoice',
+			params: [{
+				amount,
+				description,
+				currency: process.env.FIBER_CURRENCY ?? 'Fibt',
+				expiry: '0xe10',
+				final_expiry_delta: '0x5265c00',
+			}],
+		}),
+	});
+	const json = await resp.json() as { result?: { invoice_address?: string }, error?: { message?: string } };
+	if (json.error || !json.result?.invoice_address) {
+		throw new Error(json.error?.message ?? 'remote invoice creation failed');
+	}
+	return json.result.invoice_address;
+}
 
 // GET /fiber/node: Fiber node info (node_id, addresses, channel count).
 router.get('/node', async (_req, res) => {
@@ -239,6 +288,43 @@ router.get('/ready', async (_req, res) => {
 	}
 });
 
+// GET /fiber/agents/:lock_args: read Fiber node mapping for an agent lock_args.
+router.get('/agents/:lock_args', async (req, res) => {
+	const { lock_args } = req.params;
+	const map = readFiberAgentMap();
+	const entry = map[lock_args.toLowerCase()];
+	if (!entry) {
+		res.status(404).json({ error: 'no Fiber mapping found for this lock_args' });
+		return;
+	}
+	res.json(entry);
+});
+
+// POST /fiber/agents: register lock_args -> Fiber node id mapping.
+router.post('/agents', async (req, res) => {
+	const { lock_args, node_id, rpc_url, notes } = req.body as {
+		lock_args?: string;
+		node_id?: string;
+		rpc_url?: string;
+		notes?: string;
+	};
+	if (!lock_args || !node_id) {
+		res.status(400).json({ error: 'lock_args and node_id are required' });
+		return;
+	}
+	const map = readFiberAgentMap();
+	const entry: FiberAgentEntry = {
+		lock_args: lock_args.toLowerCase(),
+		node_id,
+		rpc_url,
+		notes,
+		updated_at: new Date().toISOString(),
+	};
+	map[entry.lock_args] = entry;
+	writeFiberAgentMap(map);
+	res.status(201).json(entry);
+});
+
 // POST /fiber/pay-agent: Look up agent pubkey by lock_args and keysend payment.
 router.post('/pay-agent', async (req, res) => {
 	const { lock_args, amount_ckb, description } = req.body as {
@@ -257,33 +343,49 @@ router.post('/pay-agent', async (req, res) => {
 	}
 
 	try {
-		// Look up identity cells and find the matching agent.
-		const script: Script = {
-			code_hash: AGENT_TYPE_CODE_HASH,
-			hash_type: 'data1',
-			args: '0x',
-		};
-		const result = await getCellsByScript(script, 'type', 200);
-		const match = result.objects.find(
-			(c) => c.output.lock.args.toLowerCase() === lock_args.toLowerCase(),
-		);
-		if (!match) {
-			res.status(404).json({ error: 'no agent identity cell found for this lock_args' });
-			return;
-		}
-		const agent = parseAgentCell(match.output_data, lock_args);
-		if (!agent) {
-			res.status(422).json({ error: 'cell is not a valid agent identity cell' });
-			return;
+		const normalizedLockArgs = lock_args.toLowerCase();
+		const map = readFiberAgentMap();
+		const mapped = map[normalizedLockArgs];
+
+		let targetPubkey = mapped?.node_id;
+		let agentPubkey: string | undefined;
+
+		if (!targetPubkey) {
+			const script: Script = {
+				code_hash: AGENT_TYPE_CODE_HASH,
+				hash_type: 'data1',
+				args: '0x',
+			};
+			const result = await getCellsByScript(script, 'type', 200);
+			const match = result.objects.find(
+				(c) => c.output.lock.args.toLowerCase() === normalizedLockArgs,
+			);
+			if (!match) {
+				res.status(404).json({ error: 'no agent identity cell found for this lock_args' });
+				return;
+			}
+			const agent = parseAgentCell(match.output_data, lock_args);
+			if (!agent) {
+				res.status(422).json({ error: 'cell is not a valid agent identity cell' });
+				return;
+			}
+			agentPubkey = agent.pubkey;
+			targetPubkey = agent.pubkey;
 		}
 
-		// Keysend to the agent's pubkey.
-		const payment = await sendPayment({ targetPubkey: agent.pubkey, amountCkb: amount_ckb, description });
+		const payment = mapped?.rpc_url
+			? await sendPayment({ invoice: await createRemoteInvoice(mapped.rpc_url, amount_ckb, description ?? '') })
+			: await sendPayment({ targetPubkey, amountCkb: amount_ckb, description });
 		res.json({
 			payment_hash: payment.payment_hash,
 			status: payment.status,
 			fee_shannons: payment.fee,
-			agent_pubkey: agent.pubkey,
+			target_pubkey: targetPubkey,
+			agent_pubkey: agentPubkey ?? null,
+			fiber_node_id: mapped?.node_id ?? null,
+			fiber_rpc_url: mapped?.rpc_url ?? null,
+			used_mapping: Boolean(mapped),
+			used_invoice: Boolean(mapped?.rpc_url),
 		});
 	} catch (e) {
 		console.error('fiber route error:', e);
