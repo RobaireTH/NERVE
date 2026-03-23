@@ -1,6 +1,7 @@
 import { Router } from 'express';
+import { createHash } from 'crypto';
 import { getCellsByScript, getLiveCell, getTipBlockNumber, Script, LiveCell } from '../ckb.js';
-import { payAgentByLockArgs } from './fiber.js';
+import { payAgentByLockArgs, payAgentHoldInvoiceByLockArgs, settleAgentHoldInvoiceByLockArgs } from './fiber.js';
 
 const router = Router();
 
@@ -15,11 +16,14 @@ type JobStatus = (typeof JOB_STATUS)[number];
 
 interface JobPaymentMetadata {
 	mode: 'fiber';
+	invoice_mode?: 'direct' | 'hold';
 	lock_args?: string;
 	node_id?: string;
 	rpc_url?: string;
 	amount_ckb?: number;
 	description?: string;
+	payment_hash?: string;
+	preimage?: string;
 }
 
 interface ParsedJob {
@@ -34,6 +38,16 @@ interface ParsedJob {
 	description: string | null;
 	payment?: JobPaymentMetadata | null;
 	capacity_shannons: string;
+}
+
+
+function sha256Hex(value: string): string {
+	const hex = value.startsWith('0x') ? value.slice(2) : value;
+	return `0x${createHash('sha256').update(Buffer.from(hex, 'hex')).digest('hex')}`;
+}
+
+function normalizeInvoiceMode(payment?: JobPaymentMetadata | null): 'direct' | 'hold' {
+	return payment?.invoice_mode === 'hold' ? 'hold' : 'direct';
 }
 
 function splitPaymentMetadata(description: string | null): { description: string | null, payment: JobPaymentMetadata | null } {
@@ -276,16 +290,35 @@ router.post('/', async (req, res) => {
 			res.status(400).json({ error: 'payment.mode must be fiber' });
 			return;
 		}
+		if (payment.invoice_mode !== undefined && payment.invoice_mode !== 'direct' && payment.invoice_mode !== 'hold') {
+			res.status(400).json({ error: 'payment.invoice_mode must be direct or hold when provided' });
+			return;
+		}
 		if (payment.amount_ckb !== undefined && (typeof payment.amount_ckb !== 'number' || payment.amount_ckb <= 0)) {
 			res.status(400).json({ error: 'payment.amount_ckb must be a positive number when provided' });
+			return;
+		}
+		if (payment.payment_hash !== undefined && !/^0x[0-9a-fA-F]{64}$/.test(payment.payment_hash)) {
+			res.status(400).json({ error: 'payment.payment_hash must be a 0x-prefixed 32-byte hex string when provided' });
+			return;
+		}
+		if (payment.preimage !== undefined && !/^0x[0-9a-fA-F]{64}$/.test(payment.preimage)) {
+			res.status(400).json({ error: 'payment.preimage must be a 0x-prefixed 32-byte hex string when provided' });
+			return;
+		}
+		if (payment.invoice_mode === 'hold' && payment.preimage && payment.payment_hash && sha256Hex(payment.preimage) !== payment.payment_hash.toLowerCase()) {
+			res.status(400).json({ error: 'payment.preimage does not match payment.payment_hash' });
 			return;
 		}
 	}
 
 	try {
 		const payload: Record<string, unknown> = { intent: 'post_job', reward_ckb, ttl_blocks, capability_hash };
-		const fullDescription = payment
-			? `${description ?? ''}\n\nNERVE_PAYMENT:${JSON.stringify(payment)}`
+		const normalizedPayment = payment?.invoice_mode === 'hold' && payment.preimage && !payment.payment_hash
+			? { ...payment, payment_hash: sha256Hex(payment.preimage) }
+			: payment;
+		const fullDescription = normalizedPayment
+			? `${description ?? ''}\n\nNERVE_PAYMENT:${JSON.stringify(normalizedPayment)}`
 			: description;
 		if (fullDescription !== undefined) payload.description = fullDescription;
 		const response = await fetch(`${CORE_URL}/tx/build-and-broadcast`, {
@@ -300,6 +333,86 @@ router.post('/', async (req, res) => {
 	}
 });
 
+
+// POST /jobs/:tx_hash/:index/escrow: create and pay a worker-side Fiber hold invoice before completion.
+// Body: { worker_lock_args?, payment_hash?, amount_ckb?, description? }
+router.post('/:tx_hash/:index/escrow', async (req, res) => {
+	const { tx_hash, index } = req.params;
+	const indexNum = parseInt(index, 10);
+	if (isNaN(indexNum)) {
+		res.status(400).json({ error: 'index must be a number' });
+		return;
+	}
+
+	const { worker_lock_args, payment_hash, amount_ckb, description } = req.body as {
+		worker_lock_args?: string;
+		payment_hash?: string;
+		amount_ckb?: number;
+		description?: string;
+	};
+	if (worker_lock_args !== undefined && !/^0x[0-9a-fA-F]{40}$/.test(worker_lock_args)) {
+		res.status(400).json({ error: 'worker_lock_args must be a 0x-prefixed 20-byte hex string' });
+		return;
+	}
+	if (payment_hash !== undefined && !/^0x[0-9a-fA-F]{64}$/.test(payment_hash)) {
+		res.status(400).json({ error: 'payment_hash must be a 0x-prefixed 32-byte hex string' });
+		return;
+	}
+	if (amount_ckb !== undefined && (typeof amount_ckb !== 'number' || amount_ckb <= 0)) {
+		res.status(400).json({ error: 'amount_ckb must be a positive number when provided' });
+		return;
+	}
+	if (description !== undefined && typeof description !== 'string') {
+		res.status(400).json({ error: 'description must be a string when provided' });
+		return;
+	}
+
+	try {
+		const cell = await getLiveCell({ tx_hash, index: `0x${indexNum.toString(16)}` });
+		if (!cell) {
+			res.status(404).json({ error: 'cell not found' });
+			return;
+		}
+		const job = parseJobCell(cell);
+		if (!job) {
+			res.status(422).json({ error: 'cell is not a valid job cell' });
+			return;
+		}
+		if (job.payment?.mode !== 'fiber' || normalizeInvoiceMode(job.payment) !== 'hold') {
+			res.status(409).json({ error: 'job is not configured for Fiber hold-invoice escrow' });
+			return;
+		}
+
+		const effectiveWorkerLockArgs = worker_lock_args ?? job.worker_lock_args ?? job.payment.lock_args;
+		if (!effectiveWorkerLockArgs) {
+			res.status(400).json({ error: 'worker_lock_args is required (job has no worker assigned)' });
+			return;
+		}
+
+		const effectivePaymentHash = payment_hash ?? job.payment.payment_hash;
+		if (!effectivePaymentHash) {
+			res.status(400).json({ error: 'payment_hash is required for Fiber hold escrow' });
+			return;
+		}
+
+		const paymentAmountCkb = amount_ckb ?? job.payment.amount_ckb ?? job.reward_ckb;
+		const paymentDescription = description ?? job.payment.description ?? `hold escrow for job ${tx_hash}:${indexNum}`;
+		const fiberEscrow = await payAgentHoldInvoiceByLockArgs(effectiveWorkerLockArgs, paymentAmountCkb, effectivePaymentHash, paymentDescription);
+		res.json({
+			job_outpoint: `${tx_hash}:${indexNum}`,
+			worker_lock_args: effectiveWorkerLockArgs,
+			amount_ckb: paymentAmountCkb,
+			payment_hash: effectivePaymentHash,
+			fiber_escrow_requested: true,
+			fiber_escrow: fiberEscrow,
+		});
+	} catch (e) {
+		console.error('jobs route error:', e);
+		const message = e instanceof Error ? e.message : 'failed to set up fiber escrow';
+		res.status(502).json({ error: 'failed to set up fiber escrow', details: message });
+	}
+});
+
 // POST /jobs/:tx_hash/:index/complete: complete a claimed job and auto-trigger Fiber payment when metadata exists.
 // Body: { worker_lock_args?, result? }
 router.post('/:tx_hash/:index/complete', async (req, res) => {
@@ -310,9 +423,10 @@ router.post('/:tx_hash/:index/complete', async (req, res) => {
 		return;
 	}
 
-	const { worker_lock_args, result } = req.body as {
+	const { worker_lock_args, result, fiber_preimage } = req.body as {
 		worker_lock_args?: string;
 		result?: string;
+		fiber_preimage?: string;
 	};
 	if (worker_lock_args !== undefined && !/^0x[0-9a-fA-F]{40}$/.test(worker_lock_args)) {
 		res.status(400).json({ error: 'worker_lock_args must be a 0x-prefixed 20-byte hex string' });
@@ -320,6 +434,10 @@ router.post('/:tx_hash/:index/complete', async (req, res) => {
 	}
 	if (result !== undefined && typeof result !== 'string') {
 		res.status(400).json({ error: 'result must be a string' });
+		return;
+	}
+	if (fiber_preimage !== undefined && !/^0x[0-9a-fA-F]{64}$/.test(fiber_preimage)) {
+		res.status(400).json({ error: 'fiber_preimage must be a 0x-prefixed 32-byte hex string' });
 		return;
 	}
 
@@ -368,10 +486,64 @@ router.post('/:tx_hash/:index/complete', async (req, res) => {
 		const paymentLockArgs = job.payment.lock_args ?? effectiveWorkerLockArgs;
 		const paymentAmountCkb = job.payment.amount_ckb ?? job.reward_ckb;
 		const paymentDescription = job.payment.description ?? `payment for completed job ${tx_hash}:${indexNum}`;
+		const invoiceMode = normalizeInvoiceMode(job.payment);
+
+		if (invoiceMode === 'hold') {
+			const paymentHash = job.payment.payment_hash;
+			const preimage = fiber_preimage ?? job.payment.preimage;
+			if (!paymentHash) {
+				res.json({
+					...data,
+					fiber_payment_requested: true,
+					fiber_payment: null,
+					fiber_payment_error: 'Fiber hold escrow configured but payment_hash is missing from job metadata',
+				});
+				return;
+			}
+			if (!preimage) {
+				res.json({
+					...data,
+					fiber_payment_requested: true,
+					fiber_payment: null,
+					fiber_payment_error: 'Fiber hold escrow settlement requires fiber_preimage (or payment.preimage in job metadata)',
+				});
+				return;
+			}
+			if (sha256Hex(preimage) !== paymentHash.toLowerCase()) {
+				res.json({
+					...data,
+					fiber_payment_requested: true,
+					fiber_payment: null,
+					fiber_payment_error: 'fiber_preimage does not match job payment_hash',
+				});
+				return;
+			}
+			try {
+				const fiberPayment = await settleAgentHoldInvoiceByLockArgs(paymentLockArgs, paymentHash, preimage);
+				res.json({
+					...data,
+					fiber_payment_requested: true,
+					fiber_payment: fiberPayment,
+					fiber_payment_mode: 'hold',
+					fiber_payment_amount_ckb: paymentAmountCkb,
+					fiber_payment_description: paymentDescription,
+				});
+			} catch (e) {
+				const message = e instanceof Error ? e.message : 'fiber hold settlement failed';
+				res.json({
+					...data,
+					fiber_payment_requested: true,
+					fiber_payment: null,
+					fiber_payment_error: message,
+					fiber_payment_mode: 'hold',
+				});
+			}
+			return;
+		}
 
 		try {
 			const fiberPayment = await payAgentByLockArgs(paymentLockArgs, paymentAmountCkb, paymentDescription);
-			res.json({ ...data, fiber_payment_requested: true, fiber_payment: fiberPayment });
+			res.json({ ...data, fiber_payment_requested: true, fiber_payment: fiberPayment, fiber_payment_mode: 'direct' });
 		} catch (e) {
 			const message = e instanceof Error ? e.message : 'fiber payment failed';
 			res.json({
@@ -379,6 +551,7 @@ router.post('/:tx_hash/:index/complete', async (req, res) => {
 				fiber_payment_requested: true,
 				fiber_payment: null,
 				fiber_payment_error: message,
+				fiber_payment_mode: 'direct',
 			});
 		}
 	} catch (e) {

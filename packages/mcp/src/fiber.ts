@@ -4,7 +4,7 @@
 // used by routes/fiber.ts for backward compatibility. Gains: proper error types
 // (FiberRpcError), typed params/results, wait helpers.
 
-import { FiberRpcClient, FiberRpcError, ckbToShannons as sdkCkbToShannons, buildMultiaddrFromNodeId, buildMultiaddrFromRpcUrl, nodeIdToPeerId } from '@fiber-pay/sdk';
+import { FiberRpcClient, FiberRpcError, ckbToShannons as sdkCkbToShannons, buildMultiaddrFromNodeId, buildMultiaddrFromRpcUrl, nodeIdToPeerId, type HashAlgorithm } from '@fiber-pay/sdk';
 
 const FIBER_RPC_URL = process.env.FIBER_RPC_URL ?? 'http://localhost:8227';
 
@@ -60,6 +60,7 @@ export interface FiberPaymentResult {
 
 export interface FiberHoldInvoice {
 	invoice_address: string;
+	status?: string;
 	invoice: {
 		currency: string;
 		amount: number;
@@ -174,6 +175,7 @@ export async function newHoldInvoice(
 	paymentHash: string,
 	description: string,
 	expirySeconds = 3600,
+	hashAlgorithm: HashAlgorithm = 'Sha256',
 ): Promise<FiberHoldInvoice> {
 	const currency = process.env.FIBER_CURRENCY ?? 'Fibt';
 	return client.call('new_invoice', [{
@@ -184,6 +186,7 @@ export async function newHoldInvoice(
 		payment_hash: paymentHash,
 		expiry: expirySeconds,
 		final_expiry_delta: 86_400_000,
+		hash_algorithm: hashAlgorithm,
 	}]);
 }
 

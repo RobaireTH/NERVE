@@ -62,7 +62,7 @@ Base URL: `http://localhost:8080`
 }
 ```
 
-When `result` is provided for a described job, the builder computes the result proof and creates the 33-byte result memo cell under the worker's lock as on-chain proof of work (version byte + blake2b hash of the task result). The memo cell costs 97 CKB, deducted from the poster's refund. When Fiber payment metadata is embedded in the job, prefer the MCP completion wrapper (`POST /jobs/:tx_hash/:index/complete`) so completion also auto-triggers the existing Fiber pay-agent flow.
+When `result` is provided for a described job, the builder computes the result proof and creates the 33-byte result memo cell under the worker's lock as on-chain proof of work (version byte + blake2b hash of the task result). The memo cell costs 97 CKB, deducted from the poster's refund. When Fiber payment metadata is embedded in the job, prefer the MCP wrappers: use `POST /jobs/:tx_hash/:index/escrow` to create and fund a worker-side hold invoice before completion, then use `POST /jobs/:tx_hash/:index/complete` with `fiber_preimage` to settle it after the on-chain completion succeeds. Jobs that keep the default direct mode still auto-trigger the existing pay-agent flow on completion.
 
 **cancel_job**
 ```json

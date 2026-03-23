@@ -45,6 +45,12 @@ export interface FiberAgentPaymentResult {
 	used_invoice: boolean;
 }
 
+export interface FiberAgentHoldPaymentResult extends FiberAgentPaymentResult {
+	invoice_address: string;
+	invoice_payment_hash: string;
+	used_hold_invoice: true;
+}
+
 export function readFiberAgentMap(): Record<string, FiberAgentEntry> {
 	try {
 		if (!fs.existsSync(FIBER_AGENT_MAP_PATH)) return {};
@@ -84,6 +90,27 @@ async function createRemoteInvoice(rpcUrl: string, amountCkb: number, descriptio
 		throw new Error('remote invoice creation failed');
 	}
 	return result.invoice_address;
+}
+
+async function createRemoteHoldInvoice(rpcUrl: string, amountCkb: number, paymentHash: string, description: string): Promise<{ invoice_address: string; payment_hash: string }> {
+	const amount = `0x${BigInt(Math.round(amountCkb * 100_000_000)).toString(16)}`;
+	const result = await remoteRpcCall<{ invoice_address?: string; invoice?: { data?: { payment_hash?: string } } }>(rpcUrl, 'new_invoice', [{
+		amount,
+		description,
+		currency: process.env.FIBER_CURRENCY ?? 'Fibt',
+		payment_preimage: null,
+		payment_hash: paymentHash,
+		hash_algorithm: 'sha256',
+		expiry: '0xe10',
+		final_expiry_delta: '0x5265c00',
+	}]);
+	if (!result.invoice_address) {
+		throw new Error('remote hold invoice creation failed');
+	}
+	return {
+		invoice_address: result.invoice_address,
+		payment_hash: result.invoice?.data?.payment_hash ?? paymentHash,
+	};
 }
 
 async function acceptRemoteChannel(rpcUrl: string, temporaryChannelId: string, fundingCkb: number): Promise<string> {
@@ -259,6 +286,84 @@ router.post('/settle', async (req, res) => {
 	}
 });
 
+
+async function resolveMappedFiberTarget(lockArgs: string): Promise<{ lockArgs: string; nodeId: string; rpcUrl: string }> {
+	const normalizedLockArgs = lockArgs.toLowerCase();
+	const map = readFiberAgentMap();
+	const mapped = map[normalizedLockArgs];
+	if (!mapped?.rpc_url || !mapped?.node_id) {
+		throw new Error('hold invoice escrow requires a registered Fiber rpc_url and node_id for this lock_args');
+	}
+	return { lockArgs: normalizedLockArgs, nodeId: mapped.node_id, rpcUrl: mapped.rpc_url };
+}
+
+export async function payAgentHoldInvoiceByLockArgs(lockArgs: string, amountCkb: number, paymentHash: string, description?: string): Promise<FiberAgentHoldPaymentResult> {
+	const target = await resolveMappedFiberTarget(lockArgs);
+	const payOnce = async () => {
+		const invoice = await createRemoteHoldInvoice(target.rpcUrl, amountCkb, paymentHash, description ?? '');
+		const payment = await sendPayment({ invoice: invoice.invoice_address });
+		return { invoice, payment };
+	};
+
+	let paid;
+	try {
+		paid = await payOnce();
+	} catch (e) {
+		const message = e instanceof Error ? e.message : String(e);
+		if (!/no path found|Insufficient balance/i.test(message)) {
+			throw e;
+		}
+		const peerId = await ensureDirectPeerFromRpcUrl(target.rpcUrl, target.nodeId);
+		try {
+			const opened = await openChannel(peerId, 100, true);
+			await acceptRemoteChannel(target.rpcUrl, opened.temporary_channel_id, 100);
+		} catch {
+			// ignore if a usable channel already exists or another open is already in progress
+		}
+		await waitForChannelReadyByPeer(peerId, amountCkb, 180000);
+		let lastError: unknown = e;
+		for (let i = 0; i < 8; i++) {
+			try {
+				paid = await payOnce();
+				lastError = null;
+				break;
+			} catch (retryError) {
+				lastError = retryError;
+				await new Promise((resolve) => setTimeout(resolve, 4000));
+			}
+		}
+		if (!paid && lastError) throw lastError;
+	}
+
+	if (!paid) {
+		throw new Error('fiber hold invoice payment failed after retries');
+	}
+
+	return {
+		payment_hash: paid.payment.payment_hash,
+		status: paid.payment.status,
+		fee_shannons: paid.payment.fee,
+		target_pubkey: target.nodeId,
+		agent_pubkey: null,
+		fiber_node_id: target.nodeId,
+		fiber_rpc_url: target.rpcUrl,
+		used_mapping: true,
+		used_invoice: true,
+		invoice_address: paid.invoice.invoice_address,
+		invoice_payment_hash: paid.invoice.payment_hash,
+		used_hold_invoice: true,
+	};
+}
+
+export async function settleAgentHoldInvoiceByLockArgs(lockArgs: string, paymentHash: string, preimage: string): Promise<{ ok: true; payment_hash: string; fiber_node_id: string; fiber_rpc_url: string }> {
+	const target = await resolveMappedFiberTarget(lockArgs);
+	await remoteRpcCall(target.rpcUrl, 'settle_invoice', [{
+		payment_hash: paymentHash,
+		payment_preimage: preimage,
+	}]);
+	return { ok: true, payment_hash: paymentHash, fiber_node_id: target.nodeId, fiber_rpc_url: target.rpcUrl };
+}
+
 // GET /fiber/invoice/:payment_hash: Get invoice status by payment_hash.
 router.get('/invoice/:payment_hash', async (req, res) => {
 	const { payment_hash } = req.params;
@@ -269,6 +374,7 @@ router.get('/invoice/:payment_hash', async (req, res) => {
 			payment_hash,
 			amount: invoice.invoice.amount,
 			currency: invoice.invoice.currency,
+			status: invoice.status ?? null,
 		});
 	} catch (e) {
 		console.error('fiber route error:', e);
@@ -442,6 +548,62 @@ export async function payAgentByLockArgs(lockArgs: string, amountCkb: number, de
 		used_invoice: Boolean(mapped?.rpc_url),
 	};
 }
+
+
+// POST /fiber/pay-agent-hold: create and pay a worker-side hold invoice by lock_args.
+router.post('/pay-agent-hold', async (req, res) => {
+	const { lock_args, amount_ckb, payment_hash, description } = req.body as {
+		lock_args?: string;
+		amount_ckb?: number;
+		payment_hash?: string;
+		description?: string;
+	};
+
+	if (!lock_args || amount_ckb === undefined || !payment_hash) {
+		res.status(400).json({ error: 'lock_args, amount_ckb, and payment_hash are required' });
+		return;
+	}
+
+	try {
+		const payment = await payAgentHoldInvoiceByLockArgs(lock_args, amount_ckb, payment_hash, description);
+		res.json(payment);
+	} catch (e) {
+		console.error('fiber route error:', e);
+		const message = e instanceof Error ? e.message : 'upstream request failed';
+		if (message === 'hold invoice escrow requires a registered Fiber rpc_url and node_id for this lock_args') {
+			res.status(409).json({ error: message });
+			return;
+		}
+		res.status(502).json({ error: 'upstream request failed', details: message });
+	}
+});
+
+// POST /fiber/settle-agent-hold: settle a worker-side hold invoice by lock_args.
+router.post('/settle-agent-hold', async (req, res) => {
+	const { lock_args, payment_hash, preimage } = req.body as {
+		lock_args?: string;
+		payment_hash?: string;
+		preimage?: string;
+	};
+
+	if (!lock_args || !payment_hash || !preimage) {
+		res.status(400).json({ error: 'lock_args, payment_hash, and preimage are required' });
+		return;
+	}
+
+	try {
+		const settled = await settleAgentHoldInvoiceByLockArgs(lock_args, payment_hash, preimage);
+		res.json(settled);
+	} catch (e) {
+		console.error('fiber route error:', e);
+		const message = e instanceof Error ? e.message : 'upstream request failed';
+		if (message === 'hold invoice escrow requires a registered Fiber rpc_url and node_id for this lock_args') {
+			res.status(409).json({ error: message });
+			return;
+		}
+		res.status(502).json({ error: 'upstream request failed', details: message });
+	}
+});
 
 // POST /fiber/pay-agent: Look up agent pubkey by lock_args and keysend payment.
 router.post('/pay-agent', async (req, res) => {

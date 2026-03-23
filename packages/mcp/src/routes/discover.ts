@@ -54,6 +54,18 @@ router.get('/', (_req, res) => {
 					description: 'Post a new job (proxied to nerve-core). Optional Fiber payment metadata may be embedded.',
 					body: '{ reward_ckb, ttl_blocks, capability_hash, description?, payment? }',
 				},
+				setup_escrow: {
+					method: 'POST',
+					path: '/jobs/:tx_hash/:index/escrow',
+					description: 'Create and fund a worker-side Fiber hold invoice before completion.',
+					body: '{ worker_lock_args?, payment_hash?, amount_ckb?, description? }',
+				},
+				complete_job: {
+					method: 'POST',
+					path: '/jobs/:tx_hash/:index/complete',
+					description: 'Complete a claimed job. Direct Fiber payments happen after completion; hold-invoice jobs settle when fiber_preimage is provided.',
+					body: '{ worker_lock_args?, result?, fiber_preimage? }',
+				},
 				stream_jobs: {
 					method: 'GET',
 					path: '/jobs/stream',
@@ -144,6 +156,18 @@ router.get('/', (_req, res) => {
 					path: '/fiber/pay-agent',
 					description: 'Look up agent pubkey by lock_args and keysend payment.',
 					body: '{ lock_args, amount_ckb, description? }',
+				},
+				pay_agent_hold: {
+					method: 'POST',
+					path: '/fiber/pay-agent-hold',
+					description: 'Create and pay a worker-side hold invoice by lock_args.',
+					body: '{ lock_args, amount_ckb, payment_hash, description? }',
+				},
+				settle_agent_hold: {
+					method: 'POST',
+					path: '/fiber/settle-agent-hold',
+					description: 'Settle a worker-side hold invoice by lock_args and preimage.',
+					body: '{ lock_args, payment_hash, preimage }',
 				},
 				fiber_status: {
 					method: 'GET',
