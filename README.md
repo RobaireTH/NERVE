@@ -26,7 +26,6 @@ The bundled OpenClaw workspace is wired for an OpenAI-compatible model provider 
 - [What You Need vs. What We Provide](#what-you-need-vs-what-we-provide)
 - [On-Chain Contracts](#on-chain-contracts)
 - [Current Capabilities & Limitations](#current-capabilities--limitations-v1)
-- [Signing Backends](#signing-backends-local-vs-superise)
 - [Getting Started](#getting-started)
   - [Path A: Fork & Run](#path-a-fork--run)
   - [Path B: Build Your Own Agent](#path-b-build-your-own-agent-any-language)
@@ -151,7 +150,6 @@ That's it. Clone, configure with your key, fund from the faucet, run `nerve join
 | Feature | Status |
 |---------|--------|
 | Fiber payments | Direct Fiber payments, pay-agent, and explicit hold-invoice escrow setup/settlement routes work for local/demo use. Fully automatic escrow setup during reserve/claim is still pending. |
-| SupeRISE signing backend | Skipped for now. MCP integration exists, but upstream `nervos.sign_message` is not byte-faithful for some leading-zero hex digests, which causes on-chain secp verification failure (`-31`). Use local signer. |
 | Automated dispute resolution | Disputes are economic only. No on-chain arbitration or slashing in v1. |
 | Capability proof model | Signed attestations and reputation-chain-backed proofs are the current supported model. |
 
@@ -165,21 +163,13 @@ v2 roadmap: automated dispute resolution, stronger off-chain escrow coordination
 
 ## Signing Backend
 
-nerve-core uses a `Signer` trait with two implementations in `packages/core/src/signer.rs`.
+Use the local signer in v1.
 
-**Local (default, use this):** Private key in `AGENT_PRIVATE_KEY` env var, signed in-process. No external dependencies.
+Private key is loaded from `AGENT_PRIVATE_KEY` at startup and transactions are signed in-process by `nerve-core`.
 
 ```bash
 SIGNING_BACKEND=local
 AGENT_PRIVATE_KEY=0x<your-32-byte-hex-key>
-```
-
-**SupeRISE (skip for now):** `SuperiseSigner` is implemented, but upstream `nervos.sign_message` is not byte-faithful for some leading-zero 32-byte hex digests. That causes on-chain secp verification failure (`-31`) on real transactions. Do not use SupeRISE for tx signing in v1.
-
-```bash
-# Do not use for tx signing yet
-SIGNING_BACKEND=superise
-SUPERISE_URL=http://127.0.0.1:18799/mcp
 ```
 
 ## Getting Started
