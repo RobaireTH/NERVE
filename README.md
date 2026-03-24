@@ -433,7 +433,8 @@ nerve create-reputation
 nerve propose-rep --rep 0x...:0 --type 1 --window 10
 nerve finalize-rep --rep 0x...:0
 
-# DeFi (via UTXOSwap)
+# DeFi (demo mock AMM)
+nerve create-pool --seed-ckb 100 --seed-tokens 1000000
 nerve swap --pool 0x...:0 --amount 5
 
 # Demo and testing
