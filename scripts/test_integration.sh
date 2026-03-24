@@ -8,19 +8,6 @@
 #   4. Reputation: create → propose → finalize
 #   5. Badge: mint PoP badge for completed job
 #   6. Sub-agent: spawn delegated identity
-#
-# Prerequisites:
-#   - Contracts deployed (source .env.deployed)
-#   - DEMO_POSTER_KEY and DEMO_WORKER_KEY set
-#   - CKB testnet reachable
-#   - Each agent funded with ≥ 500 CKB
-#
-# Usage:
-#   source .env && source .env.deployed && ./scripts/test_integration.sh
-#
-# Exit codes:
-#   0: all tests passed
-#   1: one or more tests failed
 
 set -euo pipefail
 

@@ -3,14 +3,6 @@
 #
 # Requires two running Fiber nodes (poster and worker).
 # Uses the MCP HTTP bridge /fiber/* endpoints.
-#
-# Prerequisites:
-#   - nerve-mcp running: MCP_URL=http://localhost:8081
-#   - Two Fiber nodes running with FIBER_RPC_URL and FIBER_WORKER_RPC_URL set
-#   - Both Fiber nodes funded with testnet CKB
-#
-# Usage:
-#   source .env && source .env.fiber && ./scripts/test_fiber_channels.sh
 
 set -euo pipefail
 

@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
 # Smoke-test the full job lifecycle against a running nerve-core instance.
-#
-# Prerequisites:
-#   - nerve-core running: cargo run -p nerve-core
-#   - JOB_CELL_TYPE_CODE_HASH, JOB_CELL_DEP_TX_HASH set (from .env.deployed)
-#   - Sufficient testnet CKB in the agent wallet
-#
-# Usage:
-#   source .env.deployed && ./scripts/test_job_lifecycle.sh [CORE_URL]
 
 set -euo pipefail
 

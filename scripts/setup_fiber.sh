@@ -1,19 +1,5 @@
 #!/usr/bin/env bash
 # Set up and start a local Fiber Network node for NERVE development.
-#
-# The Fiber node exposes:
-#   RPC:  http://localhost:8227  (FIBER_RPC_URL)
-#   P2P:  tcp/8228               (FIBER_P2P_PORT)
-#
-# Prerequisites:
-#   - fnn binary in PATH (download from https://github.com/nervosnetwork/fiber/releases)
-#   - AGENT_PRIVATE_KEY set (the same key as nerve-core, or a separate Fiber key)
-#   - CKB testnet reachable
-#
-# Usage:
-#   source .env && ./scripts/setup_fiber.sh [--reset]
-#
-# After running, source .env.fiber to export FIBER_RPC_URL, FIBER_NODE_ID.
 
 set -euo pipefail
 

@@ -1,13 +1,5 @@
 #!/usr/bin/env bash
 # Start a dedicated worker Fiber node for local/demo payments.
-#
-# Usage:
-#   ./scripts/setup_fiber_worker.sh
-#
-# Output:
-#   - worker Fiber RPC on http://127.0.0.1:9227
-#   - worker Fiber P2P on tcp/9228
-#   - .env.fiber-worker with RPC URL and node id
 
 set -euo pipefail
 

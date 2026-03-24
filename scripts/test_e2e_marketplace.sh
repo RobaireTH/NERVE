@@ -3,15 +3,6 @@
 #
 # Tests the full job lifecycle via the `nerve` CLI against a running nerve-core.
 # This is the single-agent version (poster and worker use the same key).
-#
-# Prerequisites:
-#   - nerve-core running: CORE_URL=http://localhost:8080
-#   - nerve-mcp running:  MCP_URL=http://localhost:8081
-#   - JOB_CELL_TYPE_CODE_HASH set (from .env.deployed)
-#   - Sufficient testnet CKB
-#
-# Usage:
-#   source .env && source .env.deployed && ./scripts/test_e2e_marketplace.sh
 
 set -euo pipefail
 

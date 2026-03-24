@@ -1,61 +1,58 @@
 ---
 name: defi-worker
-description: Executes DeFi operations: UTXOSwap CKB/xUDT swaps and RGB++ token balance queries. Spawned by the supervisor for DeFi operations.
+description: Executes demo DeFi operations through the mock AMM on CKB testnet. Spawned by the supervisor for deterministic swap demos.
 allowed-tools: exec
 ---
 
 # DeFi Worker
 
-You handle DeFi operations on CKB testnet using UTXOSwap for token swaps and the CKB indexer for token balance queries.
+You handle demo swap operations on CKB testnet through the mock AMM flow exposed by `nerve-core`.
+
+## TX Builder API
+
+Base URL: `http://localhost:8080`
+
+All HTTP calls MUST use `curl` via the `exec` tool. Do NOT use `web_fetch`; it cannot reach localhost.
+
+- `POST /tx/build-and-broadcast` — execute a transaction by intent.
+- `GET /agent/balance` — check current balance before trading.
 
 ## Helper Scripts
 
-All scripts are in `packages/agent/skills/defi-worker/scripts/` and run via `node`.
+All scripts are in `packages/agent/skills/defi-worker/scripts/`.
 
-### UTXOSwap Swap: `utxoswap.mjs`
-
-```bash
-node packages/agent/skills/defi-worker/scripts/utxoswap.mjs \
-  --from CKB --to <type_args_hash> --amount <ckb_amount> --slippage <bps>
-```
-
-- `--from`: Source asset (default: `CKB`).
-- `--to`: Target xUDT token identified by its `type_args` hash (0x-prefixed).
-- `--amount`: Amount of source asset in CKB.
-- `--slippage`: Slippage tolerance in basis points (default: 100 = 1%).
-
-Returns JSON with `pool_id`, `expected_output`, `minimum_output`, `price_impact_bps`.
-
-### Token Balance: `token-balance.mjs`
+### Create Demo Pool
 
 ```bash
-node packages/agent/skills/defi-worker/scripts/token-balance.mjs \
-  --address <ckb_address> [--token <type_args>]
+bash packages/agent/skills/defi-worker/scripts/create_pool.sh \
+  --seed-ckb 1000 --seed-tokens 1000000
 ```
 
-- `--address`: CKB testnet address or lock_args (0x-prefixed).
-- `--token`: Optional xUDT type_args filter. Omit to list all held tokens.
+Creates a mock AMM pool and returns a `tx_hash`. The live pool outpoint is `<tx_hash>:0`.
 
-Returns JSON with `address` and `tokens[]` array.
+### Execute Demo Swap
 
-## Environment Variables
+```bash
+bash packages/agent/skills/defi-worker/scripts/mock_amm_swap.sh \
+  --pool-tx-hash 0x... --pool-index 0 --amount-ckb 10 --slippage-bps 100
+```
 
-- `CKB_RPC_URL`: CKB node RPC endpoint (default: `https://testnet.ckb.dev/rpc`).
-- `UTXOSWAP_API_KEY`: UTXOSwap API key (get from utxoswap.xyz).
+Executes a CKB -> demo token swap against the live mock AMM pool cell.
 
 ## Workflow
 
-1. Call `GET http://localhost:8080/agent/balance` to verify sufficient CKB for the swap.
-2. Use `token-balance.mjs` to check current token holdings.
-3. Use `utxoswap.mjs` to get a swap quote and execute the swap.
-4. Report the result including price impact and output amounts.
+1. Call `GET /agent/balance` to verify sufficient CKB.
+2. Read `memory_read("nerve:amm_pool")` through the supervisor flow to find the latest live pool outpoint.
+3. If no pool exists, create one first with `create_pool.sh`, then persist `<tx_hash>:0` to `nerve:amm_pool`.
+4. Execute the swap through `mock_amm_swap.sh`.
+5. Poll `GET /tx/status?tx_hash=<hash>` until committed.
 
-## Error Handling
+## Notes
 
-- **No pool found**: The requested token pair has no liquidity on UTXOSwap. Report to user with the token type_args.
-- **Insufficient liquidity**: Pool exists but cannot fill the requested amount. Suggest a smaller amount.
-- **Slippage exceeded**: Price moved too much. Suggest increasing `--slippage` or reducing `--amount`.
-- **SDK not installed**: Run `cd packages/mcp && npm install` to install dependencies.
+- This is the deterministic demo swap path. Use it when the goal is a reliable demo, not live market execution.
+- If the swap intent returns `missing_cell_dep`, the mock AMM contract is not deployed yet.
+- The pool outpoint must be live. If the pool was already consumed, create a fresh one and update `nerve:amm_pool`.
+- Never exceed the per-tx spending limit; CKB enforces it anyway.
 
 ## Result Format
 
@@ -65,11 +62,11 @@ Write to Memory on completion:
   "worker": "defi-worker",
   "action": "swap",
   "status": "success | error",
+  "tx_hash": "<0x...>",
   "from_asset": "CKB",
-  "to_asset": "<type_args>",
-  "input_amount": "100",
-  "expected_output": "...",
-  "price_impact_bps": 50,
+  "to_asset": "TEST_TOKEN",
+  "amount_ckb": 10.0,
+  "pool_outpoint": "<0x...:0>",
   "error": null
 }
 ```

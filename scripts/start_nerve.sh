@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # start_nerve.sh - Start all NERVE services with correct env
-# Usage: ./scripts/start_nerve.sh [--stop] [--restart]
 
 set -euo pipefail
 
@@ -66,6 +65,8 @@ env \
   REPUTATION_DEP_TX_HASH="$REPUTATION_DEP_TX_HASH" \
   DOB_BADGE_CODE_HASH="$DOB_BADGE_CODE_HASH" \
   DOB_BADGE_DEP_TX_HASH="$DOB_BADGE_DEP_TX_HASH" \
+  MOCK_AMM_TYPE_CODE_HASH="${MOCK_AMM_TYPE_CODE_HASH:-}" \
+  MOCK_AMM_DEP_TX_HASH="${MOCK_AMM_DEP_TX_HASH:-}" \
   AGENT_PRIVATE_KEY="$POSTER_KEY" \
   CORE_PORT="$POSTER_PORT" \
   "$CORE_BIN" &>"$LOG_DIR/core-poster.log" &
@@ -82,6 +83,8 @@ env \
   REPUTATION_DEP_TX_HASH="$REPUTATION_DEP_TX_HASH" \
   DOB_BADGE_CODE_HASH="$DOB_BADGE_CODE_HASH" \
   DOB_BADGE_DEP_TX_HASH="$DOB_BADGE_DEP_TX_HASH" \
+  MOCK_AMM_TYPE_CODE_HASH="${MOCK_AMM_TYPE_CODE_HASH:-}" \
+  MOCK_AMM_DEP_TX_HASH="${MOCK_AMM_DEP_TX_HASH:-}" \
   AGENT_PRIVATE_KEY="$WORKER_KEY" \
   CORE_PORT="$WORKER_PORT" \
   "$CORE_BIN" &>"$LOG_DIR/core-worker.log" &

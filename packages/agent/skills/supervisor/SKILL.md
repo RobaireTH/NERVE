@@ -128,7 +128,7 @@ For long-running flows, send a plain-text update to the user after each phase co
 | balance / how much CKB | chain-scanner | get_balance |
 | tx status `<tx_hash>` | chain-scanner | get_tx_status |
 | status / show my status | chain-scanner | get_full_status |
-| swap `X CKB` for `Y` | defi-worker | swap |
+| swap `X CKB` for `Y` / demo swap | defi-worker | swap |
 | open channel | payment-worker | open_channel |
 | pay `<lock_args>` / pay agent `<lock_args>` | payment-worker | pay |
 | pay for `<service>` / subscribe to `<service>` | service-payment | process_service_payment |
@@ -179,10 +179,15 @@ Required: `job_tx_hash` (0x-prefixed hex), `job_index` (number, usually 0).
 Required: `job_tx_hash`, `job_index`, `worker_lock_args` (0x-prefixed 20-byte hex).
 
 ### swap
-Required: `from_asset` (string, default "CKB"), `to_asset` (string, xUDT type_args hash), `amount` (number, in CKB).
+Required: `amount` (number, in CKB).
 Optional: `slippage_bps` (number, default 100 = 1%).
 
-Swaps are executed via UTXOSwap using the `defi-worker` skill's `utxoswap.mjs` helper script.
+Demo swaps are executed via the mock AMM through the `defi-worker` skill's helper scripts.
+
+Before executing a swap, read the pool outpoint from Memory key `nerve:amm_pool`.
+
+- If it exists: use that live pool.
+- If it is missing: create a demo pool first, then write `<tx_hash>:0` to `nerve:amm_pool`.
 
 ## Before Each Action
 

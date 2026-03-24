@@ -5,14 +5,6 @@
 #   1. Spawn an agent identity cell with a 5 CKB per-tx spending limit.
 #   2. Attempt a 10 CKB transfer; should be rejected at consensus level.
 #   3. Attempt a 3 CKB transfer; should succeed.
-#
-# Prerequisites:
-#   - nerve-core running on :8080 with AGENT_PRIVATE_KEY set
-#   - AGENT_IDENTITY_TYPE_CODE_HASH and AGENT_IDENTITY_DEP_TX_HASH set
-#   - Sufficient testnet CKB in the agent wallet
-#
-# Usage:
-#   source .env && source .env.deployed && ./scripts/test_spending_cap.sh
 
 set -euo pipefail
 

@@ -3,17 +3,6 @@
 #
 # Deploys all contracts, spawns agent identities,
 # and creates reputation cells for both poster and worker agents.
-#
-# Prerequisites:
-#   - nerve-core running on :8080 (poster) and :8090 (worker) with ENABLE_ADMIN_API=1
-#   - DEMO_POSTER_KEY and DEMO_WORKER_KEY set in environment
-#   - Sufficient testnet CKB in both wallets
-#
-# Usage:
-#   source .env && ./scripts/setup_testnet.sh
-#
-# Output:
-#   Writes all deployed addresses and cell outpoints to .env.deployed
 
 set -euo pipefail
 

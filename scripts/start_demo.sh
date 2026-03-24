@@ -3,16 +3,6 @@
 #
 # Starts two nerve-core instances (poster + worker) with separate keys
 # and runs the full job lifecycle: post -> reserve -> claim -> complete.
-#
-# Prerequisites:
-#   - Contracts deployed: source .env.deployed
-#   - DEMO_POSTER_KEY and DEMO_WORKER_KEY set in environment or .env
-#   - CKB testnet reachable
-#   - nerve-mcp bridge NOT required (uses TX Builder directly)
-#
-# Usage:
-#   source .env && source .env.deployed && ./scripts/start_demo.sh
-#   ./scripts/start_demo.sh --non-interactive   (skip confirmation prompts)
 
 set -euo pipefail
 
@@ -201,9 +191,10 @@ ok "Flow 1 complete: Agent Marketplace"
 
 
 echo
-echo "--- FLOW 2: DeFi (UTXOSwap) ---"
-echo "   DeFi swaps use UTXOSwap via the defi-worker agent skill."
-echo "   Run: node packages/agent/skills/defi-worker/scripts/utxoswap.mjs --help"
+echo "--- FLOW 2: DeFi (Mock AMM) ---"
+echo "   Demo swaps use the mock AMM flow through nerve-core."
+echo "   Create pool: nerve create-pool --seed-ckb 1000 --seed-tokens 1000000"
+echo "   Swap:        nerve swap --pool <tx_hash>:0 --amount 10 --slippage 100"
 
 
 CAP_TX=""
@@ -361,8 +352,8 @@ echo "    claim:    $CLAIM_TX"
 echo "    complete: $COMPLETE_TX"
 echo "    Worker ($WORKER_LOCK_ARGS) received $REWARD_CKB CKB."
 echo
-echo "  FLOW 2: DeFi (UTXOSwap)"
-echo "    Use defi-worker agent skill for live swaps."
+echo "  FLOW 2: DeFi (Mock AMM)"
+echo "    Use the restored mock AMM pool + swap flow for deterministic demos."
 echo
 echo "  FLOW 3: Capability Proof"
 if [[ -n "$CAP_TX" ]]; then

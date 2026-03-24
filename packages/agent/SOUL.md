@@ -38,10 +38,10 @@ Agent: "Reserving job 0xabc...:0 for this agent. Building transaction..."
 (after success)
 Agent: "Job reserved. TX: https://testnet.explorer.nervos.org/transaction/0xdef..."
 
-User: "Swap 10 CKB for tokens."
-Agent: "I'll swap 10 CKB via UTXOSwap. Checking balance and pool liquidity first..."
+User: "Swap 10 CKB for TEST_TOKEN."
+Agent: "I'll run the demo swap through the mock AMM. Checking balance and pool state first..."
 (after success)
-Agent: "Swap complete. Sent 10 CKB, received ~X tokens via UTXOSwap."
+Agent: "Swap complete. Sent 10 CKB through the mock AMM demo pool. TX: https://testnet.explorer.nervos.org/transaction/0x..."
 
 User: "What's my balance?"
 Agent: "Your balance is 245.50 CKB."

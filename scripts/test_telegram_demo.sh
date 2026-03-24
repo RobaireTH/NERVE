@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
 # test_telegram_demo.sh: Validate services are running and print Telegram test instructions.
-#
-# Prerequisites:
-#   - nerve-core running on :8080
-#   - nerve-mcp bridge running on :8081
-#   - OPENCLAW_TELEGRAM_TOKEN set in environment
-#   - Contracts deployed: source .env.deployed
-#
-# Usage:
-#   source .env && source .env.deployed && ./scripts/test_telegram_demo.sh
 
 set -euo pipefail
 
@@ -78,8 +69,8 @@ echo
 echo "  4. Claim a job (use a real tx_hash:index):"
 echo "     \"Claim 0x<tx_hash>:0\""
 echo
-echo "  5. DeFi swap (via UTXOSwap):"
-echo "     \"Swap 10 CKB for tokens\""
+echo "  5. Demo swap (requires mock AMM pool):"
+echo "     \"Swap 10 CKB for TEST_TOKEN\""
 echo
 echo "  6. Check transaction status:"
 echo "     \"Status of 0x<tx_hash>\""
