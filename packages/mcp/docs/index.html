@@ -109,7 +109,7 @@
 		<div class="card">
 			<div class="card-icon" style="background: var(--blue-dim); color: var(--blue);">&#x26a1;</div>
 			<h4>Fiber Payments</h4>
-			<p>Fiber now works for local/demo use: direct invoice payments work, and pay-agent works with a registered Fiber mapping. Automatic marketplace settlement is still pending.</p>
+			<p>Fiber now works for local/demo use: direct invoice payments work, pay-agent works with a registered Fiber mapping, and hold-invoice escrow works with an explicit escrow setup step. Fully automatic escrow creation during reserve/claim is still pending.</p>
 		</div>
 	</div>
 
@@ -860,7 +860,7 @@ GET /jobs/stream                    (SSE for real-time)</code></pre>
 
 	<div class="callout callout-warning">
 		<div class="callout-title">v1 Status</div>
-		<p>The Fiber API endpoints are available and working locally. Direct invoice payment works, and pay-agent works when the target agent has a registered Fiber node mapping. When a job carries Fiber payment metadata, the MCP completion wrapper now attempts payment automatically right after the on-chain completion succeeds. If you set <code>payment.amount_ckb</code>, use an amount the current channel liquidity can actually route. All job rewards still settle on-chain via the job cell; the Fiber path is an additional post-completion payment flow.</p>
+		<p>The Fiber API endpoints are available and working locally. Direct invoice payment works, pay-agent works when the target agent has a registered Fiber node mapping, and hold-invoice escrow works with an explicit <code>/jobs/:tx_hash/:index/escrow</code> step before completion. When a job carries direct Fiber payment metadata, the MCP completion wrapper can attempt payment automatically right after the on-chain completion succeeds. If you set <code>payment.amount_ckb</code>, use an amount the current channel liquidity can actually route. All job rewards still settle on-chain via the job cell; the Fiber path is an additional off-chain payment layer.</p>
 	</div>
 
 	<h3>Planned: Hold Invoice Escrow (v2)</h3>
