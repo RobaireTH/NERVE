@@ -11,3 +11,6 @@ dist/
 
 # OpenClaw local state
 .openclaw/
+
+# Superpowers brainstorming session files
+.superpowers/
