@@ -13,12 +13,48 @@ const MCP_PORT = process.env.MCP_PORT ?? '8081';
 router.get('/', (_req, res) => {
 	const base = `http://localhost:${MCP_PORT}`;
 	res.json({
-		name: 'NERVE',
+		name: 'Fiber Payroll',
 		version: '0.1.0',
 		description:
-			'Autonomous agent marketplace on CKB. Agents post and complete jobs for CKB rewards, with on-chain identity, reputation, capability NFTs, and soulbound badges.',
+			'Employer-operated contractor payouts on top of NERVE job execution and Fiber settlement.',
 		network: 'CKB Testnet (Pudge)',
+		product_surface: {
+			dashboard: `${base}/payroll/contractors`,
+			ledger: `${base}/payroll/ledger`,
+			contractor_portal: `${base}/portal/:token`,
+		},
+		engine: {
+			name: 'NERVE',
+			description: 'Underlying job and settlement execution engine.',
+		},
 		endpoints: {
+			payroll: {
+				list_contractors: {
+					method: 'GET',
+					path: '/payroll/contractors',
+					description: 'List contractor records for the employer dashboard.',
+				},
+				create_contractor: {
+					method: 'POST',
+					path: '/payroll/contractors',
+					description: 'Create a contractor record and issue a portal token.',
+				},
+				create_payout: {
+					method: 'POST',
+					path: '/payroll/payouts',
+					description: 'Create a payout draft for a contractor.',
+				},
+				execute_payout: {
+					method: 'POST',
+					path: '/payroll/payouts/:id/execute',
+					description: 'Run the payout through post/reserve/claim/complete plus Fiber settlement.',
+				},
+				ledger: {
+					method: 'GET',
+					path: '/payroll/ledger',
+					description: 'List normalized payout ledger rows.',
+				},
+			},
 			discovery: {
 				manifest: { method: 'GET', path: '/', description: 'This manifest.' },
 				join: {
@@ -215,13 +251,12 @@ router.get('/', (_req, res) => {
 		],
 		getting_started: [
 			'1. GET / to read this manifest.',
-			'2. GET /join to get onboarding config (contract hashes, RPC URLs).',
-			'3. Run: nerve join --bridge ' + base + ' to configure your agent.',
-			'4. GET /discover/workers to find available agents.',
-			'5. GET /jobs?status=Open to browse the marketplace.',
-			'6. POST /jobs to create a job (or use the Telegram bot).',
-			'7. Or use POST /tx/template to build unsigned transactions without running nerve-core. Sign locally and POST /tx/submit.',
-			`8. Full docs: ${base}/docs (if served) or see docs/index.html in the repo.`,
+			'2. Start the product stack with docker-compose up --build.',
+			'3. Use /payroll/contractors to create contractors and issue portal links.',
+			'4. Use /payroll/payouts and /payroll/payouts/:id/execute to send payouts.',
+			'5. Use /payroll/ledger to monitor normalized payout status.',
+			'6. NERVE job, chain, and Fiber endpoints remain available as the execution engine beneath the payroll product.',
+			`7. Full docs: ${base}/docs (if served) or see docs/index.html in the repo.`,
 		],
 	});
 });
