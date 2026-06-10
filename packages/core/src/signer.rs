@@ -1,7 +1,10 @@
 use crate::errors::TxBuildError;
 use crate::tx_builder::signing::{compute_signing_message, placeholder_witness};
 use async_trait::async_trait;
-use secp256k1::{Message, Secp256k1, SecretKey};
+use secp256k1::{
+	ecdsa::{RecoverableSignature, RecoveryId},
+	Message, PublicKey, Secp256k1, SecretKey,
+};
 use serde_json::json;
 
 #[async_trait]
@@ -132,38 +135,61 @@ impl SuperiseSigner {
 		let address = Self::call_address(&http_client, superise_url).await?;
 		let lock_args = Self::derive_lock_args_from_address(&address)?;
 
-		Ok(Self {
+		let signer = Self {
 			http_client,
 			url: superise_url.to_string(),
 			lock_args,
-		})
+		};
+
+		signer.validate_ckb_signing_compatibility().await?;
+
+		Ok(signer)
 	}
 
-	async fn call_address(client: &reqwest::Client, url: &str) -> Result<String, TxBuildError> {
+	async fn call_mcp(client: &reqwest::Client, url: &str, tool: &str, args: serde_json::Value) -> Result<serde_json::Value, TxBuildError> {
 		let payload = json!({
 			"jsonrpc": "2.0",
 			"id": "1",
-			"method": "nervos.address",
-			"params": []
+			"method": "tools/call",
+			"params": { "name": tool, "arguments": args }
 		});
 
 		let response = client
 			.post(url)
+			.header("Accept", "application/json, text/event-stream")
 			.json(&payload)
 			.send()
 			.await
 			.map_err(|e| TxBuildError::Signing(format!("SupeRISE request failed: {e}")))?;
 
-		let result: serde_json::Value = response
-			.json()
+		let text = response
+			.text()
 			.await
-			.map_err(|e| TxBuildError::Signing(format!("bad SupeRISE response: {e}")))?;
+			.map_err(|e| TxBuildError::Signing(format!("SupeRISE response read failed: {e}")))?;
 
-		result
-			.get("result")
-			.and_then(|r| r.as_str())
-			.map(|s| s.to_string())
-			.ok_or_else(|| TxBuildError::Signing("SupeRISE address() returned no result".into()))
+		// SSE response: lines starting with "data: "
+		let json_str = text
+			.lines()
+			.find(|l| l.starts_with("data: "))
+			.map(|l| &l["data: ".len()..])
+			.unwrap_or(&text);
+
+		let parsed: serde_json::Value = serde_json::from_str(json_str)
+			.map_err(|e| TxBuildError::Signing(format!("bad SupeRISE JSON: {e}")))?;
+
+		Ok(parsed)
+	}
+
+	async fn call_address(client: &reqwest::Client, url: &str) -> Result<String, TxBuildError> {
+		let result = Self::call_mcp(client, url, "nervos.identity", json!({})).await?;
+
+		// Parse: result.result.content[0].text -> JSON -> data.address
+		let text = result
+			.pointer("/result/structuredContent/data/address")
+			.and_then(|v| v.as_str())
+			.ok_or_else(|| TxBuildError::Signing("SupeRISE nervos.identity returned no address".into()))?;
+
+		Ok(text.to_string())
 	}
 
 	fn derive_lock_args_from_address(address: &str) -> Result<String, TxBuildError> {
@@ -180,30 +206,17 @@ impl SuperiseSigner {
 		&self,
 		message_hex: &str,
 	) -> Result<[u8; 65], TxBuildError> {
-		let payload = json!({
-			"jsonrpc": "2.0",
-			"id": "1",
-			"method": "nervos.sign_message",
-			"params": [message_hex]
-		});
-
-		let response = self
-			.http_client
-			.post(&self.url)
-			.json(&payload)
-			.send()
-			.await
-			.map_err(|e| TxBuildError::Signing(format!("SupeRISE sign_message failed: {e}")))?;
-
-		let result: serde_json::Value = response
-			.json()
-			.await
-			.map_err(|e| TxBuildError::Signing(format!("bad SupeRISE response: {e}")))?;
+		let result = Self::call_mcp(
+			&self.http_client,
+			&self.url,
+			"nervos.sign_message",
+			json!({ "message": message_hex, "encoding": "hex" }),
+		).await?;
 
 		let sig_hex = result
-			.get("result")
-			.and_then(|r| r.as_str())
-			.ok_or_else(|| TxBuildError::Signing("SupeRISE sign_message returned no result".into()))?;
+			.pointer("/result/structuredContent/data/signature")
+			.and_then(|v| v.as_str())
+			.ok_or_else(|| TxBuildError::Signing("SupeRISE sign_message returned no signature".into()))?;
 
 		let sig_bytes = hex::decode(sig_hex.trim_start_matches("0x"))
 			.map_err(|e| TxBuildError::Signing(format!("bad signature hex from SupeRISE: {e}")))?;
@@ -218,6 +231,40 @@ impl SuperiseSigner {
 		let mut signature = [0u8; 65];
 		signature.copy_from_slice(&sig_bytes);
 		Ok(signature)
+	}
+
+	fn recover_pubkey(message: &[u8; 32], signature: &[u8; 65]) -> Result<PublicKey, TxBuildError> {
+		let secp = Secp256k1::new();
+		let msg = Message::from_digest_slice(message)
+			.map_err(|e| TxBuildError::Signing(format!("bad message: {e}")))?;
+		let rid = RecoveryId::from_i32(signature[64] as i32)
+			.map_err(|e| TxBuildError::Signing(format!("bad recovery id from SupeRISE: {e}")))?;
+		let rec_sig = RecoverableSignature::from_compact(&signature[..64], rid)
+			.map_err(|e| TxBuildError::Signing(format!("bad compact signature from SupeRISE: {e}")))?;
+		secp.recover_ecdsa(&msg, &rec_sig)
+			.map_err(|e| TxBuildError::Signing(format!("failed to recover pubkey from SupeRISE signature: {e}")))
+	}
+
+	async fn validate_ckb_signing_compatibility(&self) -> Result<(), TxBuildError> {
+		let expected = self.pubkey().await?;
+		for message in [
+			[0x11u8; 32],
+			{
+				let mut m = [0x11u8; 32];
+				m[0] = 0x00;
+				m
+			},
+		] {
+			let message_hex = format!("0x{}", hex::encode(message));
+			let signature = self.call_sign_message(&message_hex).await?;
+			let recovered = Self::recover_pubkey(&message, &signature)?;
+			if recovered.serialize() != expected {
+				return Err(TxBuildError::Signing(
+					"SupeRISE nervos.sign_message is not byte-faithful for 32-byte hex messages (leading-zero digest self-check failed). This backend is unsafe for CKB transaction signing until the upstream wallet fixes hex-message handling.".into(),
+				));
+			}
+		}
+		Ok(())
 	}
 }
 
@@ -251,29 +298,11 @@ impl Signer for SuperiseSigner {
 	}
 
 	async fn pubkey(&self) -> Result<[u8; 33], TxBuildError> {
-		let payload = json!({
-			"jsonrpc": "2.0",
-			"id": "1",
-			"method": "nervos.pubkey",
-			"params": []
-		});
-
-		let response = self
-			.http_client
-			.post(&self.url)
-			.json(&payload)
-			.send()
-			.await
-			.map_err(|e| TxBuildError::Signing(format!("SupeRISE pubkey() failed: {e}")))?;
-
-		let result: serde_json::Value = response
-			.json()
-			.await
-			.map_err(|e| TxBuildError::Signing(format!("bad SupeRISE response: {e}")))?;
+		let result = Self::call_mcp(&self.http_client, &self.url, "nervos.identity", json!({})).await?;
 
 		let pubkey_hex = result
-			.get("result")
-			.and_then(|r| r.as_str())
+			.pointer("/result/structuredContent/data/publicKey")
+			.and_then(|v| v.as_str())
 			.ok_or_else(|| TxBuildError::Signing("SupeRISE pubkey() returned no result".into()))?;
 
 		let pubkey_bytes = hex::decode(pubkey_hex.trim_start_matches("0x"))
@@ -297,23 +326,27 @@ impl Signer for SuperiseSigner {
 }
 
 fn decode_lock_args_from_bech32(address: &str) -> Result<String, TxBuildError> {
-	if !address.starts_with("ckt1") && !address.starts_with("ckb1") {
-		return Err(TxBuildError::Signing("address must start with ckt1 or ckb1".into()));
-	}
+	// Full CKB address format: hrp (ckt1/ckb1) + separator '1' + payload + 6-char checksum
+	// After bech32 decode: format_byte(1) + code_hash(32) + hash_type(1) + lock_args(20) = 54 bytes
+	let sep = address
+		.find('1')
+		.ok_or_else(|| TxBuildError::Signing("address missing bech32 separator".into()))?;
 
-	let without_prefix = &address[5..];
+	let data_part = &address[sep + 1..];
+	let data_part = &data_part[..data_part.len() - 6]; // strip 6-char checksum
 
-	let decoded = bech32_decode(without_prefix)
+	let decoded = bech32_decode(data_part)
 		.map_err(|e| TxBuildError::Signing(format!("bech32 decode error: {e}")))?;
 
-	if decoded.len() < 21 {
-		return Err(TxBuildError::Signing(
-			"decoded address data too short".into(),
-		));
+	// format(1) + code_hash(32) + hash_type(1) + args(20) = 54 bytes minimum
+	if decoded.len() < 54 {
+		return Err(TxBuildError::Signing(format!(
+			"decoded address too short: {} bytes, expected >= 54",
+			decoded.len()
+		)));
 	}
 
-	let lock_args = &decoded[1..21];
-
+	let lock_args = &decoded[34..54];
 	Ok(format!("0x{}", hex::encode(lock_args)))
 }
 

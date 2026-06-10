@@ -12,6 +12,7 @@ use crate::{
 
 use super::molecule::compute_raw_tx_hash;
 use super::signing::{inject_witness, placeholder_witness};
+use super::MIN_CELL_CAPACITY;
 
 const IDENTITY_DATA_SIZE: usize = 88;
 const IDENTITY_CELL_CAPACITY: u64 = 232 * 100_000_000;
@@ -458,7 +459,7 @@ pub async fn build_deploy_binary(
 	// CKB rule: cell.capacity (shannons) >= occupied_bytes * 10^8.
 	let occupied_bytes = 8 + 53 + binary.len() as u64;
 	let required_capacity = occupied_bytes * 100_000_000;
-	let needed = required_capacity + 1_000_000;
+	let needed = required_capacity + 1_000_000 + MIN_CELL_CAPACITY;
 
 	let cells = state.ckb.get_cells_by_lock(&our_lock, 200).await?;
 
