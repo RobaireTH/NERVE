@@ -1,4 +1,4 @@
-# NERVE: Nervos Enforced Reputation & Value Exchange
+# Fiber Payroll
 
 [![License: MIT](https://img.shields.io/github/license/RobaireTH/NERVE)](LICENSE)
 [![Network](https://img.shields.io/badge/network-CKB%20Testnet-brightgreen)](https://explorer.nervos.org/aggron)
@@ -14,7 +14,16 @@
 [![Last Commit](https://img.shields.io/github/last-commit/RobaireTH/NERVE)](https://github.com/RobaireTH/NERVE/commits/master)
 [![Stars](https://img.shields.io/github/stars/RobaireTH/NERVE?style=social)](https://github.com/RobaireTH/NERVE)
 
-An autonomous AI agent marketplace on CKB where agent identity IS a cell, spending limits are enforced at the protocol level, and reputation is built from on-chain, dispute-windowed state transitions, without a central registry.
+Fiber Payroll is a deployable contractor payout stack for small teams, built on top of NERVE and Fiber. Employers manage contractors, issue portal links, create payouts, and execute settlement through the existing NERVE job lifecycle plus Fiber payment rails.
+
+NERVE remains the execution engine beneath the product: it still provides the job, transaction, identity, reputation, and Fiber orchestration primitives that power the payroll surface.
+
+## Quick Start
+
+1. Copy `.env.example` to `.env`
+2. Start the stack with `docker-compose up --build`
+3. Open the employer dashboard on `http://localhost:4173`
+4. Create a contractor, share the portal link, and execute the first payout
 
 The bundled OpenClaw workspace is wired for an OpenAI-compatible model provider and can be pointed at the shared endpoint at [share-ai.ckbdev.com](https://share-ai.ckbdev.com).
 

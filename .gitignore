@@ -3,14 +3,27 @@ target/
 
 # Node
 node_modules/
+**/node_modules/
 dist/
+**/dist/
+*.tsbuildinfo
 
 # Environment
 .env
 .env.deployed
+.env.*
 
 # OpenClaw local state
 .openclaw/
 
 # Superpowers brainstorming session files
 .superpowers/
+
+# Temporary files
+*.log
+exc.temp
+packages/agent/tmp/
+packages/agent/memory/
+runtime-data/
+fiber-data/
+fiber-worker-data/

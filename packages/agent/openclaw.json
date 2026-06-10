@@ -1,13 +1,13 @@
 {
 	"agents": {
 		"defaults": {
-			"model": "claude-opus-4-6"
+			"model": "${OPENCLAW_MODEL}"
 		}
 	},
 	"providers": {
-		"anthropic": {
-			"apiKey": "${ANTHROPIC_API_KEY}",
-			"baseUrl": "${ANTHROPIC_BASE_URL}"
+		"openai": {
+			"apiKey": "${OPENAI_API_KEY}",
+			"baseUrl": "https://share-ai.ckbdev.com"
 		}
 	},
 	"channels": {

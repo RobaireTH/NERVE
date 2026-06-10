@@ -19,9 +19,22 @@ services:
 		ports:
 			- "${MCP_PORT:-8081}:8081"
 		env_file: .env
+		environment:
+			PAYROLL_DATA_DIR: /app/runtime-data
+		volumes:
+			- ./runtime-data:/app/runtime-data
 		depends_on:
 			core:
 				condition: service_healthy
+
+	web:
+		build:
+			context: .
+			dockerfile: packages/web/Dockerfile
+		ports:
+			- "${WEB_PORT:-4173}:80"
+		depends_on:
+			- mcp
 
 	fiber:
 		image: nervosnetwork/fiber:latest
